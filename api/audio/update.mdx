@@ -1,0 +1,171 @@
+---
+title: 'Update Audio'
+description: 'Update audio file metadata'
+---
+
+## PUT /api/v1/audio/:audioId
+
+Updates the metadata for an existing audio file. Only the owner of the audio file can update it.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="audioId" type="string" required>
+  MongoDB ObjectId of the audio file to update
+</ParamField>
+
+### Request Body
+
+All fields are optional. Only include the fields you want to update.
+
+<ParamField body="status" type="string">
+  Update the status of the audio file.
+  
+  **Allowed values:** `uploading`, `processing`, `ready`, `failed`, `corrupted`
+</ParamField>
+
+<ParamField body="s3" type="object">
+  Update S3 metadata as JSON object
+</ParamField>
+
+<ParamField body="codec" type="string">
+  Update audio codec. Max 255 characters.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Update track title. Max 255 characters.
+</ParamField>
+
+<ParamField body="album" type="string">
+  Update album name. Max 255 characters.
+</ParamField>
+
+<ParamField body="genre" type="string">
+  Update genre. Max 255 characters.
+</ParamField>
+
+<ParamField body="trackNumber" type="integer">
+  Update track number (1-255)
+</ParamField>
+
+<ParamField body="comments" type="string">
+  Update comments. 2-255 characters.
+</ParamField>
+
+<ParamField body="duration" type="number">
+  Update duration in seconds (must be >= 0)
+</ParamField>
+
+<ParamField body="sampleRate" type="integer">
+  Update sample rate in Hz. Must be >= 1.
+</ParamField>
+
+<ParamField body="bitRate" type="integer">
+  Update bit rate in bits per second. Must be >= 1.
+</ParamField>
+
+<ParamField body="channels" type="integer">
+  Update number of audio channels. Must be >= 1.
+</ParamField>
+
+<ParamField body="fileSize" type="bigint">
+  Update file size in bytes. Must be > 0.
+</ParamField>
+
+<ParamField body="fileName" type="string">
+  Update file name. Max 255 characters.
+</ParamField>
+
+<ParamField body="fileType" type="string">
+  Update MIME type. Max 255 characters.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the audio was updated successfully
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Updated audio file metadata
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the updated audio entry
+  </ResponseField>
+  
+  Includes all updated fields from the request
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status code on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - Audio metadata updated successfully
+- **400 Bad Request** - Validation error
+- **403 Forbidden** - Authentication required
+- **417 Expectation Failed** - Audio not found or user not authorized
+
+### Example Request
+
+```bash
+curl -X PUT https://api.example.com/api/v1/audio/507f1f77bcf86cd799439011 \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "status": "ready",
+    "duration": 245.8,
+    "sampleRate": 48000,
+    "bitRate": 320000,
+    "title": "Updated Song Title"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f1f77bcf86cd799439011",
+    "userId": "507f191e810c19729de860ea",
+    "status": "ready",
+    "duration": 245.8,
+    "sampleRate": 48000,
+    "bitRate": 320000,
+    "title": "updated song title"
+  },
+  "message": "201",
+  "error": null
+}
+```
+
+### Error Response
+
+**Not Found or Unauthorized (417)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": "Audio not found or unauthorized"
+}
+```
+
+<Note>
+  Only the user who created the audio file can update it. The ownership is verified using the `userId` from the JWT token.
+</Note>
+
+<Warning>
+  String fields are automatically trimmed and converted to lowercase. Make sure to send only the fields you want to update.
+</Warning>

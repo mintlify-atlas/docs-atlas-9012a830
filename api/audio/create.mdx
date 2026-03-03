@@ -1,0 +1,187 @@
+---
+title: 'Create Audio'
+description: 'Create a new audio file metadata entry'
+---
+
+## POST /api/v1/audio
+
+Creates a new audio file metadata entry in the database. This is typically called before uploading the actual audio file to S3.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Request Body
+
+<ParamField body="status" type="string" required>
+  Current status of the audio file.
+  
+  **Allowed values:** `uploading`, `processing`, `ready`, `failed`, `corrupted`
+</ParamField>
+
+<ParamField body="s3" type="object" default="{}">
+  S3 metadata as JSON object (optional)
+</ParamField>
+
+<ParamField body="codec" type="string">
+  Audio codec (e.g., "mp3", "aac", "flac"). Max 255 characters.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Audio track title. Max 255 characters.
+</ParamField>
+
+<ParamField body="album" type="string">
+  Album name. Max 255 characters.
+</ParamField>
+
+<ParamField body="genre" type="string">
+  Music genre. Max 255 characters.
+</ParamField>
+
+<ParamField body="trackNumber" type="integer">
+  Track number (1-255)
+</ParamField>
+
+<ParamField body="comments" type="string">
+  Additional comments. 2-255 characters.
+</ParamField>
+
+<ParamField body="duration" type="number">
+  Duration in seconds (must be >= 0)
+</ParamField>
+
+<ParamField body="sampleRate" type="integer">
+  Sample rate in Hz (e.g., 44100, 48000). Must be >= 1.
+</ParamField>
+
+<ParamField body="bitRate" type="integer">
+  Bit rate in bits per second (e.g., 320000 for 320kbps). Must be >= 1.
+</ParamField>
+
+<ParamField body="channels" type="integer">
+  Number of audio channels (e.g., 1 for mono, 2 for stereo). Must be >= 1.
+</ParamField>
+
+<ParamField body="fileSize" type="bigint">
+  File size in bytes. Must be > 0.
+</ParamField>
+
+<ParamField body="fileName" type="string">
+  Original file name. Max 255 characters.
+</ParamField>
+
+<ParamField body="fileType" type="string">
+  MIME type (e.g., "audio/mpeg"). Max 255 characters.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the audio was created successfully
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Created audio file metadata including the generated ID
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the created audio entry
+  </ResponseField>
+  
+  <ResponseField name="userId" type="string">
+    User ID (automatically set from authenticated user)
+  </ResponseField>
+  
+  All other fields from the request body are also included
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  "Audio created"
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - Audio metadata created successfully
+- **400 Bad Request** - Validation error
+- **403 Forbidden** - Authentication required
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/v1/audio \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "status": "uploading",
+    "fileName": "my-song.mp3",
+    "fileType": "audio/mpeg",
+    "codec": "mp3",
+    "title": "My Awesome Song",
+    "album": "Greatest Hits",
+    "genre": "rock",
+    "duration": 245.5,
+    "sampleRate": 44100,
+    "bitRate": 320000,
+    "channels": 2,
+    "fileSize": "10485760"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f1f77bcf86cd799439011",
+    "userId": "507f191e810c19729de860ea",
+    "status": "uploading",
+    "fileName": "my-song.mp3",
+    "fileType": "audio/mpeg",
+    "codec": "mp3",
+    "title": "my awesome song",
+    "album": "greatest hits",
+    "genre": "rock",
+    "duration": 245.5,
+    "sampleRate": 44100,
+    "bitRate": 320000,
+    "channels": 2,
+    "fileSize": "10485760"
+  },
+  "message": "Audio created",
+  "error": null
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": {
+    "issues": [
+      {
+        "code": "invalid_enum_value",
+        "message": "Invalid status value",
+        "path": ["status"]
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  String fields like `title`, `album`, `genre`, `codec`, `fileName`, and `fileType` are automatically trimmed and converted to lowercase.
+</Note>
+
+<Warning>
+  The `userId` is automatically extracted from the JWT token and should not be included in the request body.
+</Warning>

@@ -1,0 +1,434 @@
+---
+title: Installation
+description: 'Complete installation guide for PX47 with all prerequisites and dependencies'
+---
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    Version 20 or higher required
+  </Card>
+  <Card title="npm" icon="npm">
+    Comes bundled with Node.js
+  </Card>
+  <Card title="Redis" icon="server">
+    Version 7 or higher recommended
+  </Card>
+  <Card title="MongoDB" icon="database">
+    Version 6 or higher (via Prisma)
+  </Card>
+</CardGroup>
+
+## Prerequisites Installation
+
+<Tabs>
+  <Tab title="macOS">
+    ### Node.js
+    ```bash
+    # Using Homebrew
+    brew install node@20
+    ```
+
+    ### Redis
+    ```bash
+    brew install redis
+    
+    # Start Redis service
+    brew services start redis
+    
+    # Or run manually
+    redis-server
+    ```
+
+    ### FFmpeg
+    ```bash
+    brew install ffmpeg
+    ```
+
+    ### audiowaveform
+    ```bash
+    brew install audiowaveform
+    ```
+
+    <Tip>
+      Verify installations:
+      ```bash
+      node --version    # Should be v20.x or higher
+      redis-cli ping    # Should return PONG
+      ffmpeg -version
+      audiowaveform --version
+      ```
+    </Tip>
+  </Tab>
+
+  <Tab title="Ubuntu/Debian">
+    ### Node.js
+    ```bash
+    # Install Node.js 20
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    ```
+
+    ### Redis
+    ```bash
+    sudo apt-get update
+    sudo apt-get install redis-server
+    
+    # Start Redis
+    sudo systemctl start redis-server
+    sudo systemctl enable redis-server
+    ```
+
+    ### FFmpeg
+    ```bash
+    sudo apt-get install ffmpeg
+    ```
+
+    ### audiowaveform
+    ```bash
+    sudo add-apt-repository ppa:chris-needham/ppa
+    sudo apt-get update
+    sudo apt-get install audiowaveform
+    ```
+
+    <Note>
+      You may need to build audiowaveform from source if the PPA is not available:
+      ```bash
+      sudo apt-get install git make cmake gcc g++ libmad0-dev \
+        libid3tag0-dev libsndfile1-dev libgd-dev libboost-filesystem-dev \
+        libboost-program-options-dev libboost-regex-dev
+      
+      git clone https://github.com/bbc/audiowaveform.git
+      cd audiowaveform
+      mkdir build && cd build
+      cmake ..
+      make
+      sudo make install
+      ```
+    </Note>
+  </Tab>
+
+  <Tab title="Windows">
+    ### Node.js
+    Download and install from [nodejs.org](https://nodejs.org/)
+
+    ### Redis
+    Redis doesn't officially support Windows. Use WSL2 or Docker:
+    
+    ```bash
+    # Using Docker
+    docker run -d -p 6379:6379 redis:7
+    ```
+
+    ### FFmpeg
+    1. Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+    2. Extract to `C:\ffmpeg`
+    3. Add `C:\ffmpeg\bin` to your PATH
+
+    ### audiowaveform
+    Download pre-built binary from [GitHub releases](https://github.com/bbc/audiowaveform/releases)
+
+    <Warning>
+      For production deployments on Windows, we recommend using Docker or WSL2 for better compatibility.
+    </Warning>
+  </Tab>
+
+  <Tab title="Docker">
+    The easiest way to get started is using Docker:
+
+    ### Install Docker
+    - **macOS/Windows**: [Docker Desktop](https://www.docker.com/products/docker-desktop)
+    - **Linux**: [Docker Engine](https://docs.docker.com/engine/install/)
+
+    All prerequisites (Node.js, Redis, FFmpeg, audiowaveform) are included in the Docker images.
+
+    <Tip>
+      Skip to the [Docker deployment guide](/deployment/docker) for a complete setup.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Project Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone <repository-url>
+    cd px47
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    ```bash
+    cd backend
+    npm install
+    ```
+
+    This installs all required packages:
+    - **express**: Web framework
+    - **bullmq**: Job queue system
+    - **ioredis**: Redis client
+    - **@prisma/client**: Database ORM
+    - **@aws-sdk/client-s3**: AWS S3 client
+    - **bcrypt**: Password hashing
+    - **jsonwebtoken**: JWT authentication
+    - **zod**: Schema validation
+  </Step>
+
+  <Step title="Configure Environment">
+    Copy the example environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` with your configuration:
+
+    ```bash .env
+    # Application
+    NODE_ENV=dev
+    PORT=3000
+    JWT_SECRET=your-secret-key-change-this-in-production
+
+    # Database
+    DATABASE_URL="mongodb://localhost:27017/processing"
+
+    # Redis (BullMQ)
+    REDIS_URL=redis://localhost:6379
+
+    # AWS S3 Configuration
+    S3_ACCESS_KEY_ID=your-access-key-id
+    S3_SECRET_ACCESS_KEY=your-secret-access-key
+    S3_ENDPOINT=https://s3.amazonaws.com
+    S3_BUCKET_NAME=your-bucket-name
+    S3_BUCKET_OBJECT_URL=https://your-bucket.s3.amazonaws.com/
+    S3_REGION=us-east-1
+    ```
+
+    <Warning>
+      Never commit your `.env` file to version control. Keep your credentials secure.
+    </Warning>
+  </Step>
+
+  <Step title="Initialize Database">
+    Generate Prisma client and push the schema:
+
+    ```bash
+    npx prisma generate
+    npx prisma db push
+    ```
+
+    <Info>
+      This creates the necessary database tables for users, audio, and video records.
+    </Info>
+  </Step>
+
+  <Step title="Verify Installation">
+    Check that all tools are available:
+
+    ```bash
+    # Check Node.js
+    node --version
+
+    # Check FFmpeg
+    ffmpeg -version
+
+    # Check audiowaveform
+    audiowaveform --version
+
+    # Check Redis
+    redis-cli ping
+    ```
+
+    All commands should execute without errors.
+  </Step>
+</Steps>
+
+## Development Tools (Optional)
+
+<Accordion title="ESLint & Prettier">
+  The project includes ESLint and Prettier for code quality:
+
+  ```bash
+  # Run linter
+  npm run lint
+
+  # Auto-fix linting issues
+  npm run lint:fix
+
+  # Format code
+  npm run format
+  ```
+
+  Configuration files:
+  - `eslint.config.js` - ESLint rules
+  - `.prettierrc.json` - Prettier formatting
+</Accordion>
+
+<Accordion title="Nodemon">
+  Development server with hot reload:
+
+  ```bash
+  npm run dev
+  ```
+
+  Automatically restarts the server when you modify source files.
+</Accordion>
+
+## S3 Bucket Setup
+
+<Steps>
+  <Step title="Create S3 Bucket">
+    Create a bucket in AWS S3 or S3-compatible storage (MinIO, DigitalOcean Spaces, etc.)
+  </Step>
+
+  <Step title="Configure CORS">
+    Add CORS policy to allow direct uploads:
+
+    ```json
+    [
+      {
+        "AllowedHeaders": ["*"],
+        "AllowedMethods": ["GET", "PUT", "POST"],
+        "AllowedOrigins": ["*"],
+        "ExposeHeaders": ["ETag"]
+      }
+    ]
+    ```
+  </Step>
+
+  <Step title="Set Bucket Policy">
+    Grant necessary permissions:
+
+    ```json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": "*",
+          "Action": ["s3:GetObject"],
+          "Resource": ["arn:aws:s3:::your-bucket-name/*"]
+        }
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Create IAM User">
+    Create an IAM user with the following permissions:
+    - `s3:PutObject`
+    - `s3:GetObject`
+    - `s3:DeleteObject`
+
+    Use the access key and secret in your `.env` file.
+  </Step>
+</Steps>
+
+## Running the Application
+
+<Tabs>
+  <Tab title="Development">
+    Start the backend server:
+    ```bash
+    npm run dev
+    ```
+
+    In a separate terminal, start the worker:
+    ```bash
+    npm run worker
+    ```
+
+    <Info>
+      The API server runs on `http://localhost:3000`
+    </Info>
+  </Tab>
+
+  <Tab title="Production">
+    Build and run in production mode:
+    ```bash
+    # Start API server
+    node config/server.js
+
+    # Start worker (separate process)
+    node config/worker.js
+    ```
+
+    <Tip>
+      Use a process manager like PM2 for production deployments:
+      ```bash
+      npm install -g pm2
+      pm2 start config/server.js --name api
+      pm2 start config/worker.js --name worker
+      ```
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Redis Connection Error">
+    **Error**: `Error: connect ECONNREFUSED 127.0.0.1:6379`
+
+    **Solution**: Ensure Redis is running:
+    ```bash
+    redis-server
+    ```
+
+    Or check your `REDIS_URL` in `.env`
+  </Accordion>
+
+  <Accordion title="FFmpeg Not Found">
+    **Error**: `Failed to start FFmpeg: spawn ffmpeg ENOENT`
+
+    **Solution**: Install FFmpeg and ensure it's in your PATH:
+    ```bash
+    # Test FFmpeg
+    ffmpeg -version
+
+    # If not found, add to PATH or install
+    ```
+  </Accordion>
+
+  <Accordion title="audiowaveform Not Found">
+    **Error**: `Failed to start audiowaveform: spawn audiowaveform ENOENT`
+
+    **Solution**: Install audiowaveform:
+    ```bash
+    # macOS
+    brew install audiowaveform
+
+    # Ubuntu
+    sudo apt-get install audiowaveform
+    ```
+  </Accordion>
+
+  <Accordion title="Prisma Connection Error">
+    **Error**: `Can't reach database server`
+
+    **Solution**: Check your `DATABASE_URL` and ensure MongoDB is running:
+    ```bash
+    # If using Docker
+    docker run -d -p 27017:27017 mongo:7
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Upload your first audio file
+  </Card>
+  <Card title="Environment Variables" icon="key" href="/deployment/environment">
+    Complete configuration reference
+  </Card>
+  <Card title="Docker Setup" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand the system design
+  </Card>
+</CardGroup>

@@ -1,0 +1,205 @@
+---
+title: 'Update Video'
+description: 'Update video file metadata'
+---
+
+## PUT /api/v1/video/:videoId
+
+Updates the metadata for an existing video file. Only the owner of the video file can update it.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="videoId" type="string" required>
+  MongoDB ObjectId of the video file to update
+</ParamField>
+
+### Request Body
+
+All fields are optional. Only include the fields you want to update.
+
+<ParamField body="status" type="string">
+  Update the status of the video file.
+  
+  **Allowed values:** `uploading`, `processing`, `ready`, `failed`, `corrupted`
+</ParamField>
+
+<ParamField body="audioId" type="string">
+  Update reference to associated audio file. 2-255 characters.
+</ParamField>
+
+<ParamField body="s3" type="object">
+  Update S3 metadata as JSON object
+</ParamField>
+
+<ParamField body="codec" type="string">
+  Update video codec. Max 255 characters.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Update video title. Max 255 characters.
+</ParamField>
+
+<ParamField body="album" type="string">
+  Update album name. Max 255 characters.
+</ParamField>
+
+<ParamField body="genre" type="string">
+  Update genre. Max 255 characters.
+</ParamField>
+
+<ParamField body="trackNumber" type="integer">
+  Update track number (1-255)
+</ParamField>
+
+<ParamField body="duration" type="number">
+  Update duration in seconds (must be >= 0)
+</ParamField>
+
+<ParamField body="bitRate" type="integer">
+  Update bit rate. Must be >= 1.
+</ParamField>
+
+<ParamField body="format_name" type="string">
+  Update container format. Max 255 characters.
+</ParamField>
+
+<ParamField body="width" type="integer">
+  Update video width. Must be >= 1.
+</ParamField>
+
+<ParamField body="height" type="integer">
+  Update video height. Must be >= 1.
+</ParamField>
+
+<ParamField body="pix_fmt" type="string">
+  Update pixel format. Max 255 characters.
+</ParamField>
+
+<ParamField body="fps" type="integer">
+  Update frames per second
+</ParamField>
+
+<ParamField body="aspect_ratio" type="string">
+  Update aspect ratio. Max 255 characters.
+</ParamField>
+
+<ParamField body="color_space" type="string">
+  Update color space. Max 255 characters.
+</ParamField>
+
+<ParamField body="color_primaries" type="string">
+  Update color primaries. Max 255 characters.
+</ParamField>
+
+<ParamField body="color_transfer" type="string">
+  Update color transfer. Max 255 characters.
+</ParamField>
+
+<ParamField body="language" type="string">
+  Update language. Max 255 characters.
+</ParamField>
+
+<ParamField body="has_audio" type="boolean">
+  Update audio stream presence flag
+</ParamField>
+
+<ParamField body="size" type="bigint">
+  Update file size. Must be > 0.
+</ParamField>
+
+<ParamField body="fileName" type="string">
+  Update file name. Max 255 characters.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the video was updated successfully
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Updated video file metadata
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the updated video entry
+  </ResponseField>
+  
+  Includes all updated fields from the request
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status code on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - Video metadata updated successfully
+- **400 Bad Request** - Validation error
+- **403 Forbidden** - Authentication required
+- **417 Expectation Failed** - Video not found or user not authorized
+
+### Example Request
+
+```bash
+curl -X PUT https://api.example.com/api/v1/video/507f1f77bcf86cd799439012 \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "status": "ready",
+    "duration": 121.0,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "title": "Updated Video Title"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f1f77bcf86cd799439012",
+    "userId": "507f191e810c19729de860ea",
+    "status": "ready",
+    "duration": 121.0,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "title": "updated video title"
+  },
+  "message": "201",
+  "error": null
+}
+```
+
+### Error Response
+
+**Not Found or Unauthorized (417)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": "Video not found or unauthorized"
+}
+```
+
+<Note>
+  Only the user who created the video file can update it. The ownership is verified using the `userId` from the JWT token.
+</Note>
+
+<Warning>
+  String fields are automatically trimmed and converted to lowercase. This endpoint is typically called by the processing pipeline to update video metadata after analysis.
+</Warning>

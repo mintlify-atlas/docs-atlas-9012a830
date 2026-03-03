@@ -1,0 +1,130 @@
+---
+title: Introduction
+description: 'Welcome to PX47 - A high-performance video and audio processing backend system'
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Hero Dark"
+/>
+
+## What is PX47?
+
+PX47 is a **production-ready backend data-processing pipeline** for audio and video files, built with Express.js. It leverages direct S3 uploads via pre-signed URLs and processes files asynchronously using BullMQ workers with Redis.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get your API running with a working example in under 5 minutes
+  </Card>
+  <Card
+    title="Architecture Overview"
+    icon="diagram-project"
+    href="/architecture/overview"
+  >
+    Understand the system components and how they work together
+  </Card>
+  <Card
+    title="S3 Integration"
+    icon="aws"
+    href="/concepts/s3-integration"
+  >
+    Learn how direct S3 uploads work with pre-signed URLs
+  </Card>
+  <Card
+    title="BullMQ Workers"
+    icon="gears"
+    href="/concepts/job-processing"
+  >
+    Explore asynchronous job processing with Redis queues
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Direct S3 Uploads" icon="cloud-arrow-up">
+    Upload files directly to S3 using pre-signed URLs, bypassing your backend server for maximum performance and reduced bandwidth costs.
+  </Accordion>
+
+  <Accordion title="Asynchronous Processing" icon="clock">
+    BullMQ workers process files in the background with Redis-backed queues, allowing instant API responses and horizontal scalability.
+  </Accordion>
+
+  <Accordion title="Audio Processing" icon="waveform">
+    - Format conversion (MP3/AAC with configurable bitrate)
+    - Metadata extraction using FFprobe
+    - Waveform JSON generation with audiowaveform
+    - All processed files uploaded back to S3
+  </Accordion>
+
+  <Accordion title="Video Processing" icon="video">
+    - Automatic audio track extraction
+    - Mute video generation
+    - Comprehensive metadata extraction (codec, resolution, fps, color space)
+    - Separate audio and video file uploads to S3
+  </Accordion>
+</AccordionGroup>
+
+## Technology Stack
+
+<CardGroup cols={3}>
+  <Card title="Express.js" icon="node">
+    RESTful API server with JWT authentication
+  </Card>
+  <Card title="BullMQ" icon="list-check">
+    Redis-backed job queue for parallel processing
+  </Card>
+  <Card title="FFmpeg" icon="film">
+    Industry-standard media processing
+  </Card>
+  <Card title="AWS S3" icon="aws">
+    Object storage with pre-signed URLs
+  </Card>
+  <Card title="Prisma" icon="database">
+    Type-safe database ORM
+  </Card>
+  <Card title="Redis" icon="server">
+    In-memory data store for queues
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+<Note>
+  PX47 is perfect for applications that need to process user-uploaded media files without blocking the main request-response cycle.
+</Note>
+
+- **Podcast platforms**: Convert uploads to standardized formats with waveform visualization
+- **Video streaming services**: Extract audio tracks and generate mute previews
+- **Content management systems**: Process media files asynchronously with metadata extraction
+- **Social media platforms**: Handle large-scale media uploads with distributed workers
+
+## Next Steps
+
+<Steps>
+  <Step title="Installation">
+    Install Node.js, FFmpeg, audiowaveform, and Redis on your system
+    
+    [View installation guide →](/installation)
+  </Step>
+  <Step title="Quick Start">
+    Run the API server and upload your first audio file
+    
+    [Try the quickstart →](/quickstart)
+  </Step>
+  <Step title="Deploy">
+    Deploy with Docker Compose for production environments
+    
+    [Deployment guide →](/deployment/docker)
+  </Step>
+</Steps>

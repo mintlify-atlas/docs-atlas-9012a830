@@ -1,0 +1,172 @@
+---
+title: 'Generate Presigned URL'
+description: 'Generate a presigned S3 URL for file upload'
+---
+
+## POST /api/v1/generate-presigned-url/:fileName
+
+Generates a presigned S3 URL for uploading audio or video files. This endpoint automatically creates the corresponding metadata entry (audio or video) based on the file extension.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="fileName" type="string" required>
+  Name of the file to upload (including extension).
+  
+  **Supported audio extensions:** mp3, wav, flac, aac, ogg, wma, m4a, opus
+  
+  **Supported video extensions:** mp4, avi, mkv, mov, wmv, flv, webm, mpeg, mpg
+</ParamField>
+
+### Response
+
+The response structure differs based on whether the file is audio or video.
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the presigned URL was generated successfully
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Contains either `audioData` or `videoData` depending on file type
+  
+  <ResponseField name="audioData" type="object">
+    Returned for audio files
+    
+    <ResponseField name="fileName" type="string">
+      Original file name
+    </ResponseField>
+    
+    <ResponseField name="userId" type="string">
+      User ID from JWT token
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Always "uploading" initially
+    </ResponseField>
+    
+    <ResponseField name="audioId" type="string">
+      MongoDB ObjectId of the created audio metadata entry
+    </ResponseField>
+    
+    <ResponseField name="objects" type="object">
+      S3 presigned URL details
+      
+      <ResponseField name="url" type="string">
+        Presigned URL for uploading the file
+      </ResponseField>
+      
+      <ResponseField name="key" type="string">
+        S3 object key (format: `userId-uuid-fileName`)
+      </ResponseField>
+      
+      <ResponseField name="fields" type="object">
+        Additional form fields required for the upload
+      </ResponseField>
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="videoData" type="object">
+    Returned for video files (similar structure to audioData but uses `videoId`)
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status code on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - Presigned URL generated successfully
+- **400 Bad Request** - Invalid file name or extension
+- **403 Forbidden** - Authentication required
+
+### Example Request (Audio File)
+
+```bash
+curl -X POST https://api.example.com/api/v1/generate-presigned-url/my-song.mp3 \
+  -b cookies.txt
+```
+
+### Example Response (Audio File)
+
+```json
+{
+  "success": true,
+  "data": {
+    "audioData": {
+      "fileName": "my-song.mp3",
+      "userId": "507f191e810c19729de860ea",
+      "status": "uploading",
+      "audioId": "507f1f77bcf86cd799439011",
+      "objects": {
+        "url": "https://bucket.s3.amazonaws.com/",
+        "key": "507f191e810c19729de860ea-a1b2c3d4-my-song.mp3",
+        "fields": {
+          "Policy": "eyJleHBpcmF0aW9uIjoi...",
+          "X-Amz-Signature": "abc123..."
+        }
+      }
+    }
+  },
+  "message": "201",
+  "error": null
+}
+```
+
+### Example Request (Video File)
+
+```bash
+curl -X POST https://api.example.com/api/v1/generate-presigned-url/my-video.mp4 \
+  -b cookies.txt
+```
+
+### Example Response (Video File)
+
+```json
+{
+  "success": true,
+  "data": {
+    "videoData": {
+      "filename": "my-video.mp4",
+      "userId": "507f191e810c19729de860ea",
+      "status": "uploading",
+      "videoId": "507f1f77bcf86cd799439012",
+      "objects": {
+        "url": "https://bucket.s3.amazonaws.com/",
+        "key": "507f191e810c19729de860ea-a1b2c3d4-my-video.mp4",
+        "fields": {
+          "Policy": "eyJleHBpcmF0aW9uIjoi...",
+          "X-Amz-Signature": "abc123..."
+        }
+      }
+    }
+  },
+  "message": "201",
+  "error": null
+}
+```
+
+### Upload Workflow
+
+1. Call this endpoint to get a presigned URL and create the metadata entry
+2. Use the presigned URL to upload the file directly to S3
+3. Call the appropriate upload completion endpoint:
+   - `/api/v1/fileUploaded/:audioId` for audio files
+   - `/api/v1/videoUploaded/:videoId` for video files
+
+<Note>
+  The presigned URL is time-limited. Upload the file promptly after receiving the URL. The metadata entry is created with status "uploading" and will be updated after successful upload.
+</Note>
+
+<Warning>
+  The file extension determines whether an audio or video metadata entry is created. Ensure the file name has the correct extension for your content type.
+</Warning>

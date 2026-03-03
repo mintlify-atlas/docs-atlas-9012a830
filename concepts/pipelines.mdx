@@ -1,0 +1,677 @@
+---
+title: Processing Pipelines
+description: 'Audio and video processing pipelines with FFmpeg, metadata extraction, and waveform generation'
+---
+
+## Overview
+
+PX47 implements sophisticated media processing pipelines using industry-standard tools: **FFmpeg** for conversion, **FFprobe** for metadata extraction, and **audiowaveform** for waveform generation.
+
+<CardGroup cols={3}>
+  <Card title="FFmpeg" icon="film">
+    Audio/video encoding, transcoding, and extraction
+  </Card>
+  <Card title="FFprobe" icon="magnifying-glass">
+    Comprehensive metadata extraction
+  </Card>
+  <Card title="audiowaveform" icon="waveform">
+    High-quality waveform JSON generation
+  </Card>
+</CardGroup>
+
+## Audio Processing Pipeline
+
+### Pipeline Overview
+
+```javascript backend/pipeline/audioPipeline.js
+import { AudioProcessing } from '../process/audioProcessing.js';
+import { Bucket } from '../config/s3.js';
+import * as utils from '../helpers.js';
+
+export async function audioPreprocessing(job) {
+  try {
+    const { s3Key, userId, audioId } = utils.jobMetadata(job);
+    const s3 = new Bucket();
+    
+    // Step 1: Download from S3
+    logger.info('Starting download from S3...');
+    const localpath = await s3.DownloadFromS3(s3Key);
+    
+    const audio = new AudioProcessing(localpath);
+    
+    // Step 2: Convert to MP3
+    logger.info('Starting ConvertToMp3...');
+    const mp3File = await audio.ConvertToMp3();
+    logger.info('ConvertToMp3 finished:', mp3File);
+    
+    // Step 3: Extract metadata
+    logger.info('Extracting metadata...');
+    const metadata = await audio.ExtractMetadata();
+    logger.info('Metadata extracted:', metadata);
+
+    // Step 4: Generate waveform
+    logger.info('Extracting waveform...');
+    const waveFormJson = await audio.ExtractWaveform();
+    logger.info('Waveform extracted:', waveFormJson);
+
+    // Step 5: Upload to S3
+    const mp3Upload = await s3.UploadtoS3(mp3File, 'audio/mpeg', userId);
+    const waveformUpload = await s3.UploadtoS3(
+      waveFormJson,
+      'application/json',
+      userId,
+    );
+
+    // Step 6: Save to database
+    await utils.SaveAudioMetadatatoDb(audioId, userId, {
+      s3: {
+        original: s3Key,
+        mp3: mp3Upload.key,
+        waveform: waveformUpload.key,
+      },
+      duration: Number(metadata.format.duration),
+      sampleRate: Number(metadata.streams[0].sample_rate),
+      bitRate: Number(metadata.format.bit_rate),
+      channels: Number(metadata.streams[0].channels),
+      codec: metadata.streams[0].codec_name,
+      status: 'ready',
+    });
+
+    // Step 7: Cleanup
+    await utils.deleteLocalFile(localpath);
+    await utils.deleteLocalFile(mp3File);
+    await utils.deleteLocalFile(waveFormJson);
+
+    return {
+      metadata,
+      mp3Url: mp3Upload.key,
+      waveformUrl: waveformUpload.key,
+    };
+  } catch (error) {
+    logger.error(`Audio preprocessing error | job=${job.id} | ${error.message}`);
+    throw error;
+  }
+}
+```
+
+### MP3 Conversion
+
+```javascript backend/process/audioProcessing.js
+import { spawn } from 'child_process';
+import { CODEC, SAMPLERATE, BITRATE, CHANNELS } from '../config/constants.js';
+
+class AudioProcessing {
+  constructor(inputPath) {
+    this.ffmpeg = 'ffmpeg';
+    this.inputPath = inputPath;
+  }
+
+  ConvertToMp3() {
+    if (!this.inputPath)
+      return Promise.reject(new Error('Input path is required'));
+      
+    const outputPath = generateOutputFile(this.inputPath, 'mp3');
+    
+    // Skip conversion if already MP3
+    if (getFileExt(this.inputPath) === 'mp3')
+      return Promise.resolve(outputPath);
+    
+    return new Promise((resolve, reject) => {
+      const mp3Conversion = spawn(this.ffmpeg, [
+        '-i', this.inputPath,
+        '-ac', CHANNELS.toString(),       // 2 channels (stereo)
+        '-b:a', BITRATE,                  // 128k bitrate
+        '-ar', SAMPLERATE.toString(),     // 44100 Hz
+        '-codec:a', CODEC,                // libmp3lame
+        outputPath,
+      ]);
+
+      let log = '';
+
+      mp3Conversion.stderr.on('data', (chunk) => {
+        log += chunk.toString();
+        logger.debug('FFmpeg log chunk:', chunk.toString());
+      });
+
+      mp3Conversion.on('close', (code) => {
+        if (code === 0) {
+          resolve(outputPath);
+        } else {
+          logger.error(`FFmpeg exited with code ${code}\nLogs: ${log}`);
+          reject(new Error(`FFmpeg exited with code ${code}\nLogs: ${log}`));
+        }
+      });
+
+      mp3Conversion.on('error', (err) => {
+        logger.error(`Failed to start FFmpeg: ${err.message}`);
+        reject(new Error(`Failed to start FFmpeg: ${err.message}`));
+      });
+    });
+  }
+}
+```
+
+**Audio Conversion Settings:**
+
+```javascript backend/config/constants.js
+export const CODEC = 'libmp3lame';  // MP3 encoder
+export const BITRATE = '128k';       // 128 kbps
+export const CHANNELS = 2;           // Stereo
+export const SAMPLERATE = 44100;     // 44.1 kHz
+```
+
+<Info>
+  These settings provide a good balance between quality and file size. Adjust in `backend/config/constants.js` for your needs.
+</Info>
+
+### Metadata Extraction
+
+```javascript backend/process/audioProcessing.js
+ExtractMetadata = () => {
+  return new Promise((resolve, reject) => {
+    let data = '';
+
+    const ffprobe = spawn('ffprobe', [
+      '-v', 'quiet',              // Suppress verbose output
+      '-print_format', 'json',    // Output as JSON
+      '-show_format',             // Show format info
+      '-show_streams',            // Show stream info
+      this.inputPath,
+    ]);
+
+    ffprobe.stdout.on('data', (chunk) => {
+      data += chunk.toString();
+    });
+
+    ffprobe.stderr.on('data', (chunk) => {
+      logger.error('ffprobe log:', chunk.toString());
+    });
+
+    ffprobe.on('close', (code) => {
+      if (code === 0) {
+        try {
+          resolve(JSON.parse(data));
+        } catch (err) {
+          logger.error('Failed to parse ffprobe JSON: ' + err.message);
+          reject(new Error('Failed to parse ffprobe JSON: ' + err.message));
+        }
+      } else {
+        logger.error(`ffprobe exited with code ${code}`);
+        reject(new Error(`ffprobe exited with code ${code}`));
+      }
+    });
+  });
+};
+```
+
+**Extracted Metadata Structure:**
+
+```json
+{
+  "format": {
+    "filename": "/path/to/audio.mp3",
+    "format_name": "mp3",
+    "duration": "245.567000",
+    "size": "3932105",
+    "bit_rate": "128000"
+  },
+  "streams": [
+    {
+      "codec_name": "mp3",
+      "codec_type": "audio",
+      "sample_rate": "44100",
+      "channels": 2,
+      "bit_rate": "128000"
+    }
+  ]
+}
+```
+
+### Waveform Generation
+
+```javascript backend/process/audioProcessing.js
+ExtractWaveform() {
+  if (!this.inputPath)
+    return Promise.reject(new Error('Input path is required'));
+    
+  const outputPath = generateOutputFile(this.inputPath, 'json');
+
+  return new Promise((resolve, reject) => {
+    const waveFormMetadata = spawn('audiowaveform', [
+      '-i', this.inputPath,
+      '-o', outputPath,
+      '--pixels-per-second', PPS.toString(), // 10 pixels/second
+      '-b', BIT.toString(),                   // 8-bit precision
+    ]);
+
+    let log = '';
+
+    waveFormMetadata.stderr.on('data', (chunk) => (log += chunk.toString()));
+
+    waveFormMetadata.on('close', (code) => {
+      if (code === 0) {
+        resolve(outputPath);
+      } else {
+        logger.error(`Waveform generation failed. Code: ${code}\n${log}`);
+        reject(new Error(`Waveform generation failed. Code: ${code}\n${log}`));
+      }
+    });
+
+    waveFormMetadata.on('error', (err) => {
+      logger.error(`Failed to start audiowaveform: ${err.message}`);
+      reject(new Error(`Failed to start audiowaveform: ${err.message}`));
+    });
+  });
+}
+```
+
+**Waveform Settings:**
+
+```javascript backend/config/constants.js
+export const BIT = 8;   // 8-bit precision
+export const PPS = 10;  // 10 pixels per second
+```
+
+**Generated Waveform JSON:**
+
+```json
+{
+  "version": 2,
+  "channels": 2,
+  "sample_rate": 44100,
+  "samples_per_pixel": 4410,
+  "bits": 8,
+  "length": 2456,
+  "data": [-35, 67, -42, 88, ...]
+}
+```
+
+<Tip>
+  The waveform data array contains amplitude values for visualization. Use this with libraries like WaveSurfer.js for client-side rendering.
+</Tip>
+
+## Video Processing Pipeline
+
+### Pipeline Overview
+
+```javascript backend/pipeline/videoPipeline.js
+import { AudioProcessing } from '../process/audioProcessing.js';
+import { VideoProcessing } from '../process/videoProcessing.js';
+import { Bucket } from '../config/s3.js';
+import * as utils from '../helpers.js';
+
+export async function videoPreprocessing(job) {
+  let localPath = '';
+  try {
+    const { s3Key, userId, videoId } = utils.jobMetadata(job);
+    const s3 = new Bucket();
+
+    // Step 1: Download from S3
+    logger.info('Video Processing | File downloaded from bucket');
+    localPath = await s3.DownloadFromS3(s3Key);
+
+    const audioProcessor = new AudioProcessing(localPath);
+    const videoProcessor = new VideoProcessing(localPath);
+
+    // Step 2: Extract metadata
+    const metadata = await audioProcessor.ExtractMetadata();
+
+    const videoStream = metadata.streams.find((s) => s.codec_type === 'video');
+    const audioStream = metadata.streams.find((s) => s.codec_type === 'audio');
+    const hasAudio = Boolean(audioStream);
+
+    const VideoContentType = utils.generateContentType(metadata, 'video');
+    const AudioContentType = utils.generateContentType(metadata, 'audio');
+
+    // Step 3: Extract audio track (if present)
+    let audioFileKey = '';
+    let extractedAudio = '';
+    if (hasAudio) {
+      extractedAudio = await videoProcessor.ExtractAudiofromVideo();
+      const audioUpload = await s3.UploadtoS3(
+        extractedAudio,
+        AudioContentType,
+        userId,
+      );
+      logger.info('Video Processing | Extracted Audio uploaded to bucket');
+      audioFileKey = audioUpload.key;
+    }
+
+    // Step 4: Generate mute video
+    const muteVideo = await videoProcessor.ExtractMuteVideo();
+    const muteVideoUpload = await s3.UploadtoS3(
+      muteVideo,
+      VideoContentType,
+      userId,
+    );
+    logger.info('Video Processing | Mute Video uploaded to bucket');
+
+    const fps = utils.parseFps(
+      videoStream?.avg_frame_rate ?? videoStream?.r_frame_rate ?? null,
+    );
+
+    // Step 5: Save audio metadata
+    let audioEntry = null;
+    if (hasAudio) {
+      audioEntry = await utils.CreateAudioMetadatatoDb(userId, {
+        s3: { audio: audioFileKey },
+        fileName: metadata.format.filename,
+        fileType: audioStream?.codec_type,
+        duration: Number(audioStream?.duration) ?? 0,
+        sampleRate: Number(audioStream?.sample_rate) ?? 0,
+        bitRate: Number(audioStream?.bit_rate) ?? 0,
+        channels: Number(audioStream?.channels) ?? 0,
+        codec: audioStream?.codec_name ?? 'unknown',
+        status: 'ready',
+      });
+    }
+
+    // Step 6: Save video metadata
+    await utils.SaveVideoMetadatatoDb(videoId, userId, {
+      s3: {
+        originalKey: s3Key,
+        video: muteVideoUpload.key,
+        audio: audioFileKey || null,
+      },
+      userId: userId,
+      has_audio: hasAudio,
+      audioId: audioEntry?.id ?? null,
+      format_name: metadata.format.format_name ?? 'unknown',
+      duration: Number(metadata.format.duration) ?? 0,
+      bit_rate: Number(metadata.format.bit_rate) ?? 0,
+      codec: videoStream?.codec_name ?? 'unknown',
+      width: Number(videoStream?.width) ?? 0,
+      height: Number(videoStream?.height) ?? 0,
+      pix_fmt: videoStream?.pix_fmt ?? 'unknown',
+      fps: fps,
+      aspect_ratio: videoStream?.display_aspect_ratio ?? 'unknown',
+      color_space: videoStream?.color_space ?? 'unknown',
+      color_primaries: videoStream?.color_primaries ?? 'unknown',
+      color_transfer: videoStream?.color_transfer ?? 'unknown',
+      language: videoStream?.tags?.language ?? 'unknown',
+      title: metadata.format.filename ?? 'unknown',
+      status: 'ready',
+    });
+
+    logger.info('Video Processing | metadata saved to db');
+
+    // Step 7: Cleanup
+    await utils.deleteLocalFile(localPath);
+    await utils.deleteLocalFile(muteVideo);
+    await utils.deleteLocalFile(extractedAudio);
+    logger.info('Video Processing | File cleanup completed locally');
+
+    return {
+      metadata,
+      audio: audioFileKey,
+      video: muteVideoUpload.key,
+    };
+  } catch (error) {
+    await utils.deleteLocalFile(localPath);
+    logger.error(`Video preprocessing error | job=${job.id} | ${error.message}`);
+    throw error;
+  }
+}
+```
+
+### Audio Extraction from Video
+
+```javascript backend/process/videoProcessing.js
+import { spawn } from 'child_process';
+
+class VideoProcessing {
+  constructor(inputPath) {
+    this.ffmpeg = 'ffmpeg';
+    this.inputPath = inputPath;
+  }
+
+  ExtractAudiofromVideo() {
+    if (!this.inputPath) {
+      return Promise.reject('Format required input path');
+    }
+    
+    const outputFile = generateOutputFile(this.inputPath, 'm4a');
+
+    return new Promise((resolve, reject) => {
+      const audioData = spawn(this.ffmpeg, [
+        '-y',                // Overwrite output file
+        '-i', this.inputPath,
+        '-vn',               // No video
+        '-acodec', 'copy',   // Copy audio codec (no re-encoding)
+        outputFile,
+      ]);
+
+      let log = '';
+      audioData.stderr.on('data', (chunk) => {
+        log += chunk.toString();
+      });
+
+      audioData.on('close', (code) => {
+        if (code == 0) {
+          resolve(outputFile);
+        } else {
+          logger.error(
+            `Error occurred while extracting audio with code ${code}: ${log}`,
+          );
+          reject(
+            new Error(
+              `Error occurred while extracting audio with code ${code}: ${log}`,
+            ),
+          );
+        }
+      });
+    });
+  }
+}
+```
+
+<Info>
+  Using `-acodec copy` avoids re-encoding the audio, preserving original quality and speeding up processing.
+</Info>
+
+### Mute Video Generation
+
+```javascript backend/process/videoProcessing.js
+ExtractMuteVideo() {
+  if (!this.inputPath) {
+    return Promise.reject('Format required input path');
+  }
+  
+  const outputFile = generateOutputFile(this.inputPath);
+
+  return new Promise((resolve, reject) => {
+    const audioData = spawn(this.ffmpeg, [
+      '-y',                // Overwrite output file
+      '-i', this.inputPath,
+      '-an',               // No audio
+      '-vcodec', 'copy',   // Copy video codec (no re-encoding)
+      outputFile,
+    ]);
+
+    let log = '';
+    audioData.stderr.on('data', (chunk) => {
+      log += chunk.toString();
+    });
+
+    audioData.on('close', (code) => {
+      if (code == 0) {
+        resolve(outputFile);
+      } else {
+        logger.error(
+          `Error occurred while extracting mute video with code ${code}: ${log}`,
+        );
+        reject(
+          new Error(
+            `Error occurred while extracting mute video with code ${code}: ${log}`,
+          ),
+        );
+      }
+    });
+  });
+}
+```
+
+<Tip>
+  The mute video can be used for preview purposes or recombined with different audio tracks.
+</Tip>
+
+## Supported Formats
+
+### Audio Formats
+
+```javascript backend/config/constants.js
+export const AUDIO_EXTENSIONS = [
+  'mp3',
+  'wav',
+  'aac',
+  'flac',
+  'ogg',
+  'm4a',
+  'wma',
+  'amr',
+  'aiff',
+  'alac',
+  'opus',
+  'mid',
+  'midi',
+  'caf',
+];
+```
+
+### Video Formats
+
+```javascript backend/config/constants.js
+export const VIDEO_EXTENSIONS = [
+  'mp4',
+  'mov',
+  'avi',
+  'mkv',
+  'flv',
+  'wmv',
+  'webm',
+  'm4v',
+  '3gp',
+  '3g2',
+  'mpeg',
+  'mpg',
+  'ts',
+  'm2ts',
+  'vob',
+  'ogv',
+  'f4v',
+];
+```
+
+### Format Detection
+
+```javascript backend/helpers.js
+export function CheckExt(FileName) {
+  const _file = FileName?.split('.')[1];
+  const IsAudio = AUDIO_EXTENSIONS.includes(_file);
+  const IsVideo = VIDEO_EXTENSIONS.includes(_file);
+  return {
+    IsAudio,
+    IsVideo,
+  };
+}
+```
+
+## Performance Considerations
+
+<AccordionGroup>
+  <Accordion title="CPU Usage" icon="microchip">
+    FFmpeg operations are CPU-intensive. Monitor CPU usage and adjust worker concurrency:
+    
+    ```javascript
+    const worker = new Worker(
+      'audio-processing',
+      processFn,
+      {
+        connection: redis,
+        concurrency: Math.max(1, Math.floor(os.cpus().length / 2)),
+      }
+    );
+    ```
+  </Accordion>
+
+  <Accordion title="Disk I/O" icon="hard-drive">
+    Files are downloaded locally for processing. Ensure sufficient disk space:
+    
+    - Temp directory: `backend/temp-disk/`
+    - Cleanup after each job
+    - Monitor disk usage
+  </Accordion>
+
+  <Accordion title="Memory Usage" icon="memory">
+    FFmpeg can use significant memory for large files. Consider:
+    
+    - Setting memory limits with Docker
+    - Monitoring worker memory usage
+    - Implementing file size limits
+  </Accordion>
+
+  <Accordion title="Processing Time" icon="clock">
+    Processing time depends on:
+    
+    - File size
+    - Input format
+    - Conversion settings
+    - Server CPU
+    
+    Typical times:
+    - 5MB audio file: 2-5 seconds
+    - 100MB video file: 30-60 seconds
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+### FFmpeg Error Handling
+
+```javascript
+mp3Conversion.on('close', (code) => {
+  if (code === 0) {
+    resolve(outputPath);
+  } else {
+    logger.error(`FFmpeg exited with code ${code}\nLogs: ${log}`);
+    reject(new Error(`FFmpeg exited with code ${code}\nLogs: ${log}`));
+  }
+});
+
+mp3Conversion.on('error', (err) => {
+  logger.error(`Failed to start FFmpeg: ${err.message}`);
+  reject(new Error(`Failed to start FFmpeg: ${err.message}`));
+});
+```
+
+### Cleanup on Error
+
+```javascript
+try {
+  const localpath = await s3.DownloadFromS3(s3Key);
+  const mp3File = await audio.ConvertToMp3();
+  // ... processing ...
+} catch (error) {
+  // Cleanup local files even on error
+  await deleteLocalFile(localpath);
+  await deleteLocalFile(mp3File);
+  throw error;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Worker Architecture" icon="gears" href="/architecture/workers">
+    Deep dive into BullMQ workers
+  </Card>
+  <Card title="Job Processing" icon="list-check" href="/concepts/job-processing">
+    Job lifecycle and queue management
+  </Card>
+  <Card title="Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="Prerequisites" icon="wrench" href="/deployment/prerequisites">
+    Install FFmpeg and audiowaveform
+  </Card>
+</CardGroup>

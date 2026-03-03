@@ -1,0 +1,131 @@
+---
+title: 'Login User'
+description: 'Authenticate a user and receive an access token'
+---
+
+## POST /api/v1/auth/login
+
+Authenticates a user with email and password, returning a JWT token in an HTTP-only cookie.
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  User's email address used during registration.
+  
+  **Validation:**
+  - Must be a valid email address
+  - Automatically trimmed and converted to lowercase
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password.
+  
+  **Validation:**
+  - Minimum 6 characters
+  - Verified against hashed password in database
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the login was successful
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  JWT access token (also set as HTTP-only cookie named `access_token`)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Empty string on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Cookies Set
+
+The response sets an HTTP-only cookie with the following properties:
+
+- **Name:** `access_token`
+- **Value:** JWT token (expires in 1 hour)
+- **HttpOnly:** true
+- **SameSite:** lax
+- **Secure:** false (set to true in production)
+- **Path:** /
+
+### Status Codes
+
+- **202 Accepted** - User successfully authenticated
+- **400 Bad Request** - Invalid credentials or validation error
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{
+    "email": "user@example.com",
+    "password": "securepassword123"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "message": "",
+  "error": null
+}
+```
+
+### Error Responses
+
+**Unregistered User (400)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": "Unregistered user"
+}
+```
+
+**Password Mismatch (400)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": "Password mismatch"
+}
+```
+
+**Validation Error (400)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": {
+    "issues": [
+      {
+        "code": "too_small",
+        "message": "Password must be at least 6 characters",
+        "path": ["password"]
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  The JWT token is signed with HS256 algorithm and expires in 1 hour. Store the cookie and include it in subsequent authenticated requests.
+</Note>
+
+<Warning>
+  The access token is set as an HTTP-only cookie to prevent XSS attacks. Your client must support cookies to use authenticated endpoints.
+</Warning>

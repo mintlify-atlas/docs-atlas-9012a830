@@ -1,0 +1,111 @@
+---
+title: "Get User Profile"
+description: "Retrieve the authenticated user's profile information"
+---
+
+## GET /api/v1/auth/profile
+
+Retrieves the profile information for the currently authenticated user.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token obtained from login.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  User profile information (password excluded)
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the user
+  </ResponseField>
+  
+  <ResponseField name="email" type="string">
+    User's email address
+  </ResponseField>
+  
+  <ResponseField name="audioFile" type="array">
+    Array of audio file references associated with this user
+  </ResponseField>
+  
+  <ResponseField name="videoFiles" type="array">
+    Array of video file references associated with this user
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  "Profile details"
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **202 Accepted** - Profile retrieved successfully
+- **400 Bad Request** - Invalid or expired token
+- **403 Forbidden** - Token missing or unauthorized
+
+### Example Request
+
+```bash
+curl -X GET https://api.example.com/api/v1/auth/profile \
+  -b cookies.txt
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f1f77bcf86cd799439011",
+    "email": "user@example.com",
+    "audioFile": [],
+    "videoFiles": []
+  },
+  "message": "Profile details",
+  "error": null
+}
+```
+
+### Error Responses
+
+**Token Missing (403)**
+```json
+{
+  "success": false,
+  "message": "Token missing"
+}
+```
+
+**Unauthorized Access (403)**
+```json
+{
+  "success": false,
+  "message": "Unauthorized aceess"
+}
+```
+
+**Invalid or Expired Token (400)**
+```json
+{
+  "success": false,
+  "message": "invalid or expired token : more details=..."
+}
+```
+
+<Note>
+  This endpoint requires a valid JWT token in the `access_token` cookie. The password field is automatically excluded from the response for security.
+</Note>
+
+<Warning>
+  JWT tokens expire after 1 hour. If you receive a 400 or 403 error, re-authenticate using the login endpoint.
+</Warning>

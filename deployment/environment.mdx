@@ -1,0 +1,541 @@
+---
+title: Environment Variables
+description: 'Complete environment variable reference and configuration guide for PX47'
+---
+
+## Environment File
+
+PX47 uses a `.env` file in the `backend` directory for configuration. Copy `.env.example` to get started:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+<Warning>
+  Never commit your `.env` file to version control. It contains sensitive credentials.
+</Warning>
+
+## Complete Configuration
+
+### Application Settings
+
+```bash .env
+# Environment (dev, staging, production)
+NODE_ENV=production
+
+# Server port
+PORT=3000
+
+# JWT secret for authentication (change this!)
+JWT_SECRET=your-very-secret-jwt-key-change-this-in-production
+```
+
+<Accordion title="NODE_ENV Options">
+  - `dev` or `development`: Development mode with verbose logging
+  - `staging`: Staging environment for testing
+  - `production`: Production mode with optimized settings
+</Accordion>
+
+### Database Configuration
+
+```bash .env
+# MongoDB connection string
+DATABASE_URL="mongodb://localhost:27017/processing"
+```
+
+<Tabs>
+  <Tab title="Local MongoDB">
+    ```bash
+    DATABASE_URL="mongodb://localhost:27017/processing"
+    ```
+  </Tab>
+
+  <Tab title="MongoDB with Authentication">
+    ```bash
+    DATABASE_URL="mongodb://username:password@localhost:27017/processing?authSource=admin"
+    ```
+  </Tab>
+
+  <Tab title="MongoDB Atlas">
+    ```bash
+    DATABASE_URL="mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/processing?retryWrites=true&w=majority"
+    ```
+  </Tab>
+
+  <Tab title="Docker Compose">
+    ```bash
+    DATABASE_URL="mongodb://root:root@mongodb:27017/processing?authSource=admin"
+    ```
+    <Note>
+      Use the service name `mongodb` instead of `localhost` in Docker.
+    </Note>
+  </Tab>
+</Tabs>
+
+### Redis Configuration
+
+```bash .env
+# Redis connection URL
+REDIS_URL=redis://localhost:6379
+```
+
+<Tabs>
+  <Tab title="Local Redis">
+    ```bash
+    REDIS_URL=redis://localhost:6379
+    ```
+  </Tab>
+
+  <Tab title="Redis with Password">
+    ```bash
+    REDIS_URL=redis://:password@localhost:6379
+    ```
+  </Tab>
+
+  <Tab title="Redis with Username">
+    ```bash
+    REDIS_URL=redis://username:password@localhost:6379
+    ```
+  </Tab>
+
+  <Tab title="Redis Cloud">
+    ```bash
+    REDIS_URL=redis://default:password@redis-12345.cloud.redislabs.com:12345
+    ```
+  </Tab>
+
+  <Tab title="Docker Compose">
+    ```bash
+    REDIS_URL=redis://redis:6379
+    ```
+    <Note>
+      Use the service name `redis` instead of `localhost` in Docker.
+    </Note>
+  </Tab>
+</Tabs>
+
+### S3 Configuration
+
+```bash .env
+# S3 Access Credentials
+S3_ACCESS_KEY_ID=your-access-key-id
+S3_SECRET_ACCESS_KEY=your-secret-access-key
+
+# S3 Endpoint
+S3_ENDPOINT=https://s3.amazonaws.com
+
+# S3 Bucket Name
+S3_BUCKET_NAME=your-bucket-name
+
+# S3 Bucket Public URL
+S3_BUCKET_OBJECT_URL=https://your-bucket.s3.amazonaws.com/
+
+# S3 Region
+S3_REGION=us-east-1
+```
+
+<Tabs>
+  <Tab title="AWS S3">
+    ```bash
+    S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+    S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    S3_ENDPOINT=https://s3.amazonaws.com
+    S3_BUCKET_NAME=px47-media
+    S3_BUCKET_OBJECT_URL=https://px47-media.s3.amazonaws.com/
+    S3_REGION=us-east-1
+    ```
+  </Tab>
+
+  <Tab title="MinIO">
+    ```bash
+    S3_ACCESS_KEY_ID=minioadmin
+    S3_SECRET_ACCESS_KEY=minioadmin
+    S3_ENDPOINT=https://minio.example.com
+    S3_BUCKET_NAME=media
+    S3_BUCKET_OBJECT_URL=https://minio.example.com/media/
+    S3_REGION=us-east-1
+    ```
+  </Tab>
+
+  <Tab title="DigitalOcean Spaces">
+    ```bash
+    S3_ACCESS_KEY_ID=DO00EXAMPLE
+    S3_SECRET_ACCESS_KEY=secretkeyexample
+    S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+    S3_BUCKET_NAME=px47-media
+    S3_BUCKET_OBJECT_URL=https://px47-media.nyc3.digitaloceanspaces.com/
+    S3_REGION=us-east-1
+    ```
+  </Tab>
+
+  <Tab title="Cloudflare R2">
+    ```bash
+    S3_ACCESS_KEY_ID=your-r2-access-key
+    S3_SECRET_ACCESS_KEY=your-r2-secret-key
+    S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+    S3_BUCKET_NAME=px47-media
+    S3_BUCKET_OBJECT_URL=https://your-custom-domain.com/
+    S3_REGION=auto
+    ```
+  </Tab>
+</Tabs>
+
+### Processing Constants
+
+These are configured in code, not environment variables:
+
+```javascript backend/config/constants.js
+// Audio conversion settings
+export const CODEC = 'libmp3lame';  // MP3 encoder
+export const BITRATE = '128k';       // 128 kbps
+export const CHANNELS = 2;           // Stereo
+export const SAMPLERATE = 44100;     // 44.1 kHz
+
+// Waveform settings
+export const BIT = 8;                // 8-bit precision
+export const PPS = 10;               // 10 pixels per second
+
+// S3 settings
+export const S3_EXPIRES = 3600;      // Pre-signed URL expiration (1 hour)
+
+// Local storage
+export const LOCAL_FOLDER = 'temp-disk';
+```
+
+<Tip>
+  Modify these constants in `backend/config/constants.js` to customize audio processing quality and performance.
+</Tip>
+
+## Environment Variable Reference
+
+### Required Variables
+
+<ParamField path="NODE_ENV" type="string" required>
+  Application environment: `dev`, `staging`, or `production`
+</ParamField>
+
+<ParamField path="PORT" type="number" required>
+  HTTP server port (default: 3000)
+</ParamField>
+
+<ParamField path="DATABASE_URL" type="string" required>
+  MongoDB connection string
+  
+  Format: `mongodb://[username:password@]host[:port]/database[?options]`
+</ParamField>
+
+<ParamField path="JWT_SECRET" type="string" required>
+  Secret key for JWT token signing. Use a strong, random value in production.
+  
+  Generate with: `openssl rand -base64 32`
+</ParamField>
+
+<ParamField path="REDIS_URL" type="string" required>
+  Redis connection URL for BullMQ job queues
+  
+  Format: `redis://[username:password@]host[:port][/db-number]`
+</ParamField>
+
+<ParamField path="S3_ACCESS_KEY_ID" type="string" required>
+  AWS IAM access key ID or S3-compatible service access key
+</ParamField>
+
+<ParamField path="S3_SECRET_ACCESS_KEY" type="string" required>
+  AWS IAM secret access key or S3-compatible service secret key
+</ParamField>
+
+<ParamField path="S3_ENDPOINT" type="string" required>
+  S3 endpoint URL
+  
+  - AWS S3: `https://s3.amazonaws.com`
+  - MinIO: `https://minio.yourdomain.com`
+  - DigitalOcean: `https://region.digitaloceanspaces.com`
+</ParamField>
+
+<ParamField path="S3_BUCKET_NAME" type="string" required>
+  S3 bucket name for storing media files
+</ParamField>
+
+<ParamField path="S3_BUCKET_OBJECT_URL" type="string" required>
+  Base URL for accessing S3 objects
+  
+  Format: `https://bucket-name.s3.region.amazonaws.com/`
+</ParamField>
+
+<ParamField path="S3_REGION" type="string" required>
+  S3 region
+  
+  Examples: `us-east-1`, `eu-west-1`, `ap-south-1`
+</ParamField>
+
+## Configuration by Environment
+
+### Development
+
+```bash .env
+NODE_ENV=dev
+PORT=3000
+DATABASE_URL="mongodb://localhost:27017/processing"
+JWT_SECRET=dev-secret-do-not-use-in-production
+REDIS_URL=redis://localhost:6379
+
+S3_ACCESS_KEY_ID=minioadmin
+S3_SECRET_ACCESS_KEY=minioadmin
+S3_ENDPOINT=http://localhost:9000
+S3_BUCKET_NAME=dev-bucket
+S3_BUCKET_OBJECT_URL=http://localhost:9000/dev-bucket/
+S3_REGION=us-east-1
+```
+
+<Note>
+  For development, you can use MinIO locally instead of AWS S3:
+  ```bash
+  docker run -d -p 9000:9000 -p 9001:9001 minio/minio server /data --console-address ":9001"
+  ```
+</Note>
+
+### Staging
+
+```bash .env
+NODE_ENV=staging
+PORT=3000
+DATABASE_URL="mongodb+srv://staging-user:password@cluster-staging.mongodb.net/processing"
+JWT_SECRET=staging-jwt-secret-generate-with-openssl
+REDIS_URL=redis://:password@redis-staging.cloud.redislabs.com:12345
+
+S3_ACCESS_KEY_ID=AKIAIOSFODNN7STAGING
+S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYSTAGING
+S3_ENDPOINT=https://s3.amazonaws.com
+S3_BUCKET_NAME=px47-staging
+S3_BUCKET_OBJECT_URL=https://px47-staging.s3.amazonaws.com/
+S3_REGION=us-east-1
+```
+
+### Production
+
+```bash .env
+NODE_ENV=production
+PORT=3000
+DATABASE_URL="mongodb+srv://prod-user:strong-password@cluster-prod.mongodb.net/processing"
+JWT_SECRET=production-jwt-secret-very-secure-and-random
+REDIS_URL=redis://:strong-password@redis-prod.cloud.redislabs.com:12345
+
+S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE
+S3_ENDPOINT=https://s3.amazonaws.com
+S3_BUCKET_NAME=px47-production
+S3_BUCKET_OBJECT_URL=https://cdn.yourdomain.com/
+S3_REGION=us-east-1
+```
+
+<Warning>
+  In production:
+  - Use strong, random JWT secrets
+  - Enable authentication for MongoDB and Redis
+  - Use HTTPS for all endpoints
+  - Consider using AWS Secrets Manager or similar for credentials
+</Warning>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Generate Strong Secrets" icon="key">
+    Use secure random generators for secrets:
+
+    ```bash
+    # Generate JWT secret
+    openssl rand -base64 32
+
+    # Generate strong password
+    openssl rand -hex 32
+    ```
+  </Accordion>
+
+  <Accordion title="Restrict File Permissions" icon="lock">
+    Protect your `.env` file:
+
+    ```bash
+    chmod 600 backend/.env
+    ```
+
+    This ensures only the owner can read/write the file.
+  </Accordion>
+
+  <Accordion title="Use Environment-Specific Files" icon="folder-tree">
+    Consider separate env files per environment:
+
+    ```
+    backend/
+      .env.development
+      .env.staging
+      .env.production
+    ```
+
+    Load the appropriate file based on environment:
+    ```javascript
+    import dotenv from 'dotenv';
+    dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
+    ```
+  </Accordion>
+
+  <Accordion title="Rotate Credentials Regularly" icon="rotate">
+    Implement a credential rotation policy:
+    - Rotate JWT secrets quarterly
+    - Rotate S3 access keys every 90 days
+    - Update database passwords annually
+    - Use AWS IAM roles instead of long-lived keys when possible
+  </Accordion>
+
+  <Accordion title="Use Secrets Management" icon="vault">
+    For production, consider using secrets management services:
+
+    - **AWS Secrets Manager**
+    - **HashiCorp Vault**
+    - **Azure Key Vault**
+    - **Google Secret Manager**
+
+    Example with AWS Secrets Manager:
+    ```javascript
+    import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+
+    const client = new SecretsManagerClient({ region: 'us-east-1' });
+    const response = await client.send(
+      new GetSecretValueCommand({ SecretId: 'px47/production' })
+    );
+    const secrets = JSON.parse(response.SecretString);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Validating Configuration
+
+### Test Database Connection
+
+```javascript test-db.js
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function testConnection() {
+  try {
+    await prisma.$connect();
+    console.log('✓ Database connection successful');
+  } catch (error) {
+    console.error('✗ Database connection failed:', error.message);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+testConnection();
+```
+
+### Test Redis Connection
+
+```javascript test-redis.js
+import Redis from 'ioredis';
+import { REDIS_URL } from './config/conf.js';
+
+const redis = new Redis(REDIS_URL);
+
+async function testRedis() {
+  try {
+    const pong = await redis.ping();
+    console.log('✓ Redis connection successful:', pong);
+  } catch (error) {
+    console.error('✗ Redis connection failed:', error.message);
+  } finally {
+    redis.disconnect();
+  }
+}
+
+testRedis();
+```
+
+### Test S3 Connection
+
+```javascript test-s3.js
+import { Bucket } from './config/s3.js';
+
+async function testS3() {
+  const s3 = new Bucket();
+  try {
+    const url = await s3.CreatePresignedUrl('test-user', 'test.txt');
+    console.log('✓ S3 connection successful');
+    console.log('Pre-signed URL:', url.url);
+  } catch (error) {
+    console.error('✗ S3 connection failed:', error.message);
+  }
+}
+
+testS3();
+```
+
+Run tests:
+```bash
+node test-db.js
+node test-redis.js
+node test-s3.js
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Missing Environment Variables" icon="circle-exclamation">
+    **Error**: `Cannot read property 'X' of undefined`
+
+    **Solution**: Ensure all required variables are set in `.env`:
+    ```bash
+    # Check if .env exists
+    ls -la backend/.env
+
+    # Verify variables are loaded
+    node -e "require('dotenv').config({path:'backend/.env'}); console.log(process.env.PORT)"
+    ```
+  </Accordion>
+
+  <Accordion title="Invalid MongoDB URL" icon="database">
+    **Error**: `MongoServerError: bad auth`
+
+    **Solution**: Check connection string format:
+    - Include `?authSource=admin` for authenticated connections
+    - URL-encode special characters in passwords
+    - Verify username and password are correct
+  </Accordion>
+
+  <Accordion title="Redis Connection Timeout" icon="server">
+    **Error**: `Error: connect ETIMEDOUT`
+
+    **Solution**:
+    - Verify Redis is running: `redis-cli ping`
+    - Check firewall rules
+    - Ensure correct host and port in `REDIS_URL`
+  </Accordion>
+
+  <Accordion title="S3 Access Denied" icon="shield-xmark">
+    **Error**: `AccessDenied: Access Denied`
+
+    **Solution**:
+    - Verify IAM user has correct permissions
+    - Check bucket policy allows your operations
+    - Ensure credentials are correct
+    - Verify bucket exists in specified region
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="Prerequisites" icon="wrench" href="/deployment/prerequisites">
+    System requirements and dependencies
+  </Card>
+  <Card title="S3 Integration" icon="aws" href="/concepts/s3-integration">
+    Configure S3 bucket and permissions
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand the system design
+  </Card>
+</CardGroup>

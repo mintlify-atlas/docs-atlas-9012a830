@@ -1,80 +1,734 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quick Start'
+description: 'Get your media processing API up and running in 5 minutes'
 ---
 
-## Get started in three steps
+## Get Started with Media Processing
 
-Get your documentation site running locally and make your first customization.
+This guide walks you through setting up the media processing API and uploading your first audio file. You'll learn how to authenticate, generate presigned URLs, upload to S3, and trigger processing.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Install Dependencies">
+    First, clone the repository and install the required dependencies:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+    ```bash
+    git clone <your-repo-url>
+    cd backend
+    npm install
+    ```
+
+    Make sure you have the following system dependencies installed:
+    - **FFmpeg** - for audio/video processing
+    - **audiowaveform** - for waveform generation
+    - **Redis** - for job queue management
+    - **MongoDB** - for data persistence
+  </Step>
+
+  <Step title="Configure Environment">
+    Copy the example environment file and configure your credentials:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Update `.env` with your actual credentials:
+
+    ```bash
+    NODE_ENV=dev
+    DATABASE_URL="mongodb://root:root@localhost:27017/processing"
+    PORT=3000
+    JWT_SECRET=your-secret-key-here
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    REDIS_URL=redis://localhost:6379
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    S3_ACCESS_KEY_ID=your-s3-access-key
+    S3_SECRET_ACCESS_KEY=your-s3-secret-key
+    S3_ENDPOINT=https://s3.amazonaws.com
+    S3_BUCKET_NAME=your-bucket-name
+    S3_BUCKET_OBJECT_URL=https://your-bucket.s3.amazonaws.com/
+    S3_REGION=us-east-1
+    ```
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Initialize Database">
+    Set up Prisma and initialize the database:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash
+    npx prisma generate
+    npx prisma db push
+    ```
+  </Step>
+
+  <Step title="Start the Services">
+    You need to run both the API server and the worker process.
+
+    **Terminal 1 - Start the API server:**
+    ```bash
+    npm run dev
+    ```
+
+    **Terminal 2 - Start the worker:**
+    ```bash
+    npm run worker
+    ```
+
+    Alternatively, use Docker Compose to start all services:
+    ```bash
+    docker-compose up -d
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Your First Audio Upload
+
+Now that your API is running, let's walk through the complete workflow of uploading and processing an audio file.
+
+<Steps>
+  <Step title="Register a User Account">
+    First, create a user account to get authentication credentials:
+
+    <CodeGroup>
+    ```bash cURL
+    curl -X POST http://localhost:3000/api/v1/auth/register \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "user@example.com",
+        "password": "securepassword123"
+      }'
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch('http://localhost:3000/api/v1/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: 'user@example.com',
+        password: 'securepassword123'
+      })
+    });
+
+    const data = await response.json();
+    console.log(data);
+    ```
+
+    ```python Python
+    import requests
+
+    response = requests.post(
+        'http://localhost:3000/api/v1/auth/register',
+        json={
+            'email': 'user@example.com',
+            'password': 'securepassword123'
+        }
+    )
+
+    print(response.json())
+    ```
+    </CodeGroup>
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "message": "User Registered Successfully",
+      "data": {
+        "id": "65f1a2b3c4d5e6f7g8h9i0j1",
+        "email": "user@example.com"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Login and Get Access Token">
+    Login to receive a JWT access token (stored in cookies):
+
+    <CodeGroup>
+    ```bash cURL
+    curl -X POST http://localhost:3000/api/v1/auth/login \
+      -H "Content-Type: application/json" \
+      -c cookies.txt \
+      -d '{
+        "email": "user@example.com",
+        "password": "securepassword123"
+      }'
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch('http://localhost:3000/api/v1/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include', // Important for cookies
+      body: JSON.stringify({
+        email: 'user@example.com',
+        password: 'securepassword123'
+      })
+    });
+
+    const data = await response.json();
+    console.log(data);
+    ```
+
+    ```python Python
+    import requests
+
+    session = requests.Session()
+    response = session.post(
+        'http://localhost:3000/api/v1/auth/login',
+        json={
+            'email': 'user@example.com',
+            'password': 'securepassword123'
+        }
+    )
+
+    print(response.json())
+    # Cookies are automatically stored in session
+    ```
+    </CodeGroup>
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "user": {
+          "id": "65f1a2b3c4d5e6f7g8h9i0j1",
+          "email": "user@example.com"
+        }
+      }
+    }
+    ```
+
+    <Note>
+    The access token is automatically set as an HTTP-only cookie named `access_token`. You'll need to include this cookie in all subsequent requests.
+    </Note>
+  </Step>
+
+  <Step title="Generate a Presigned URL">
+    Request a presigned S3 URL for uploading your audio file. This endpoint automatically creates an audio record and returns upload credentials:
+
+    <CodeGroup>
+    ```bash cURL
+    curl -X POST http://localhost:3000/api/v1/generate-presigned-url/mysong.mp3 \
+      -b cookies.txt
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch(
+      'http://localhost:3000/api/v1/generate-presigned-url/mysong.mp3',
+      {
+        method: 'POST',
+        credentials: 'include'
+      }
+    );
+
+    const data = await response.json();
+    console.log(data);
+    ```
+
+    ```python Python
+    # Using the session from login
+    response = session.post(
+        'http://localhost:3000/api/v1/generate-presigned-url/mysong.mp3'
+    )
+
+    data = response.json()
+    print(data)
+    ```
+    </CodeGroup>
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "audioData": {
+          "fileName": "mysong.mp3",
+          "userId": "65f1a2b3c4d5e6f7g8h9i0j1",
+          "status": "uploading",
+          "audioId": "65f1a2b3c4d5e6f7g8h9i0j2",
+          "objects": {
+            "url": "https://s3.amazonaws.com/bucket/...",
+            "key": "65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.mp3"
+          }
+        }
+      }
+    }
+    ```
+
+    <Info>
+    Save the `audioId` and `key` from this response - you'll need them in the next steps!
+    </Info>
+  </Step>
+
+  <Step title="Upload to S3">
+    Use the presigned URL to upload your audio file directly to S3:
+
+    <CodeGroup>
+    ```bash cURL
+    # Extract the URL from previous response and upload
+    curl -X PUT "https://s3.amazonaws.com/bucket/..." \
+      -H "Content-Type: audio/mpeg" \
+      --data-binary "@mysong.mp3"
+    ```
+
+    ```javascript JavaScript
+    // Assuming you have the presigned URL from previous step
+    const presignedUrl = data.data.audioData.objects.url;
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    const file = document.getElementById('fileInput').files[0];
+    
+    const uploadResponse = await fetch(presignedUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'audio/mpeg'
+      },
+      body: file
+    });
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    if (uploadResponse.ok) {
+      console.log('File uploaded successfully!');
+    }
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```python Python
+    # Upload file to S3
+    presigned_url = data['data']['audioData']['objects']['url']
 
-### Step 3: Go live
+    with open('mysong.mp3', 'rb') as f:
+        upload_response = requests.put(
+            presigned_url,
+            headers={'Content-Type': 'audio/mpeg'},
+            data=f
+        )
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    if upload_response.status_code == 200:
+        print('File uploaded successfully!')
+    ```
+    </CodeGroup>
 
-## Next steps
+    <Warning>
+    Make sure to set the correct `Content-Type` header based on your file type:
+    - MP3: `audio/mpeg`
+    - WAV: `audio/wav`
+    - AAC: `audio/aac`
+    - MP4: `video/mp4`
+    </Warning>
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Confirm Upload and Trigger Processing">
+    After uploading to S3, notify the API to start processing the file:
+
+    <CodeGroup>
+    ```bash cURL
+    # Replace {audioId} with the ID from step 3
+    # Replace {key} with the S3 key from step 3
+    curl -X POST http://localhost:3000/api/v1/fileUploaded/65f1a2b3c4d5e6f7g8h9i0j2 \
+      -b cookies.txt \
+      -H "Content-Type: application/json" \
+      -d '{
+        "key": "65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.mp3"
+      }'
+    ```
+
+    ```javascript JavaScript
+    const audioId = data.data.audioData.audioId;
+    const s3Key = data.data.audioData.objects.key;
+
+    const response = await fetch(
+      `http://localhost:3000/api/v1/fileUploaded/${audioId}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          key: s3Key
+        })
+      }
+    );
+
+    const result = await response.json();
+    console.log(result);
+    ```
+
+    ```python Python
+    audio_id = data['data']['audioData']['audioId']
+    s3_key = data['data']['audioData']['objects']['key']
+
+    response = session.post(
+        f'http://localhost:3000/api/v1/fileUploaded/{audio_id}',
+        json={'key': s3_key}
+    )
+
+    print(response.json())
+    ```
+    </CodeGroup>
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "status": "processing",
+        "id": "65f1a2b3c4d5e6f7g8h9i0j2",
+        "fileName": "mysong.mp3"
+      }
+    }
+    ```
+
+    <Note>
+    This endpoint triggers the BullMQ worker to process your audio file. The worker will:
+    1. Download the file from S3
+    2. Extract metadata using FFprobe
+    3. Convert audio to AAC format
+    4. Generate waveform JSON
+    5. Upload processed files back to S3
+    6. Update the database with metadata
+    </Note>
+  </Step>
+
+  <Step title="Retrieve Your Content">
+    Fetch all your uploaded and processed files:
+
+    <CodeGroup>
+    ```bash cURL
+    curl -X GET "http://localhost:3000/api/v1/contents?page=1&limit=10" \
+      -b cookies.txt
+    ```
+
+    ```javascript JavaScript
+    const response = await fetch(
+      'http://localhost:3000/api/v1/contents?page=1&limit=10',
+      {
+        credentials: 'include'
+      }
+    );
+
+    const data = await response.json();
+    console.log(data);
+    ```
+
+    ```python Python
+    response = session.get(
+        'http://localhost:3000/api/v1/contents',
+        params={'page': 1, 'limit': 10}
+    )
+
+    print(response.json())
+    ```
+    </CodeGroup>
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "files": [
+          {
+            "id": "65f1a2b3c4d5e6f7g8h9i0j2",
+            "fileName": "mysong.mp3",
+            "status": "ready",
+            "duration": 245.5,
+            "sampleRate": 44100,
+            "channels": 2,
+            "codec": "aac",
+            "s3": {
+              "original": "65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.mp3",
+              "processed": "65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.aac",
+              "waveform": "65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.json"
+            },
+            "createdAt": "2024-03-15T10:30:00Z"
+          }
+        ],
+        "pagination": {
+          "page": 1,
+          "limit": 10,
+          "total": 1
+        }
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Access Processed Files">
+    Get temporary presigned URLs to access your processed files:
+
+    <CodeGroup>
+    ```bash cURL
+    # Replace {key} with the S3 key of the file you want to access
+    curl -X POST http://localhost:3000/api/v1/get-content-access/65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.aac \
+      -b cookies.txt
+    ```
+
+    ```javascript JavaScript
+    const s3Key = '65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.aac';
+
+    const response = await fetch(
+      `http://localhost:3000/api/v1/get-content-access/${s3Key}`,
+      {
+        method: 'POST',
+        credentials: 'include'
+      }
+    );
+
+    const data = await response.json();
+    console.log(data.data); // Presigned URL
+    ```
+
+    ```python Python
+    s3_key = '65f1a2b3c4d5e6f7g8h9i0j1-abc123-mysong.aac'
+
+    response = session.post(
+        f'http://localhost:3000/api/v1/get-content-access/{s3_key}'
+    )
+
+    presigned_url = response.json()['data']
+    print(presigned_url)
+    ```
+    </CodeGroup>
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "data": "https://s3.amazonaws.com/bucket/...?X-Amz-Signature=..."
+    }
+    ```
+
+    <Note>
+    The presigned URL is valid for 38 minutes (2300 seconds). Use it to download or stream the processed file.
+    </Note>
+  </Step>
+</Steps>
+
+---
+
+## Processing Status
+
+Your files go through the following status workflow:
+
+| Status | Description |
+|--------|-------------|
+| `uploading` | File record created, awaiting S3 upload |
+| `processing` | Worker is processing the file |
+| `ready` | Processing complete, files available |
+| `failed` | Processing encountered an error |
+| `corrupted` | File is corrupted or invalid |
+
+You can check the current status by retrieving your content list (Step 6).
+
+---
+
+## Complete Workflow Example
+
+Here's a complete script that ties everything together:
+
+<CodeGroup>
+```bash Complete Script
+#!/bin/bash
+
+# Configuration
+API_URL="http://localhost:3000/api/v1"
+EMAIL="user@example.com"
+PASSWORD="securepassword123"
+AUDIO_FILE="mysong.mp3"
+
+# 1. Register
+echo "Registering user..."
+curl -X POST "$API_URL/auth/register" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"
+
+# 2. Login
+echo -e "\n\nLogging in..."
+curl -X POST "$API_URL/auth/login" \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"
+
+# 3. Generate presigned URL
+echo -e "\n\nGenerating presigned URL..."
+RESPONSE=$(curl -s -X POST "$API_URL/generate-presigned-url/$AUDIO_FILE" -b cookies.txt)
+echo $RESPONSE
+
+# Extract URL and key (requires jq)
+PRESIGNED_URL=$(echo $RESPONSE | jq -r '.data.audioData.objects.url')
+S3_KEY=$(echo $RESPONSE | jq -r '.data.audioData.objects.key')
+AUDIO_ID=$(echo $RESPONSE | jq -r '.data.audioData.audioId')
+
+# 4. Upload to S3
+echo -e "\n\nUploading to S3..."
+curl -X PUT "$PRESIGNED_URL" \
+  -H "Content-Type: audio/mpeg" \
+  --data-binary "@$AUDIO_FILE"
+
+# 5. Confirm upload
+echo -e "\n\nConfirming upload..."
+curl -X POST "$API_URL/fileUploaded/$AUDIO_ID" \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -d "{\"key\":\"$S3_KEY\"}"
+
+# 6. Check status
+echo -e "\n\nChecking content..."
+curl -X GET "$API_URL/contents?page=1&limit=10" -b cookies.txt
+
+echo -e "\n\nDone!"
+```
+
+```javascript Complete Node.js Script
+const API_URL = 'http://localhost:3000/api/v1';
+const EMAIL = 'user@example.com';
+const PASSWORD = 'securepassword123';
+
+async function uploadAudioFile(filePath) {
+  // 1. Register
+  await fetch(`${API_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD })
+  });
+
+  // 2. Login
+  const loginRes = await fetch(`${API_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD })
+  });
+
+  // 3. Generate presigned URL
+  const fileName = filePath.split('/').pop();
+  const presignedRes = await fetch(
+    `${API_URL}/generate-presigned-url/${fileName}`,
+    {
+      method: 'POST',
+      credentials: 'include'
+    }
+  );
+  
+  const presignedData = await presignedRes.json();
+  const { url, key } = presignedData.data.audioData.objects;
+  const audioId = presignedData.data.audioData.audioId;
+
+  // 4. Upload to S3
+  const fs = require('fs');
+  const fileBuffer = fs.readFileSync(filePath);
+  
+  await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'audio/mpeg' },
+    body: fileBuffer
+  });
+
+  // 5. Confirm upload
+  const confirmRes = await fetch(`${API_URL}/fileUploaded/${audioId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ key })
+  });
+
+  const result = await confirmRes.json();
+  console.log('Upload complete:', result);
+
+  // 6. Get content
+  const contentRes = await fetch(`${API_URL}/contents?page=1&limit=10`, {
+    credentials: 'include'
+  });
+  
+  const content = await contentRes.json();
+  console.log('Your files:', content);
+}
+
+uploadAudioFile('./mysong.mp3');
+```
+</CodeGroup>
+
+---
+
+## Video Upload
+
+The same workflow applies to video files! Just use the video endpoints:
+
+```bash
+# Generate presigned URL for video
+curl -X POST http://localhost:3000/api/v1/generate-presigned-url/myvideo.mp4 \
+  -b cookies.txt
+
+# After S3 upload, confirm with:
+curl -X POST http://localhost:3000/api/v1/videoUploaded/{videoId} \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -d '{"key": "your-s3-key-here"}'
+```
+
+The worker will process videos by:
+- Extracting metadata
+- Creating a mute version of the video
+- Extracting audio-only track (AAC)
+- Generating waveform for the audio
+- Uploading all processed files to S3
+
+---
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="API Reference" icon="code" href="/api/auth/register">
+    Explore all available endpoints and parameters
+  </Card>
+  
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Learn how the processing pipeline works
+  </Card>
+  
+  <Card title="Deployment" icon="rocket" href="/deployment/docker">
+    Deploy to production with Docker
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/deployment/environment">
+    Configure S3, Redis, and environment variables
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication failed - Invalid credentials">
+    Make sure you're using the correct email and password. Check that the JWT_SECRET in your `.env` file matches across all services.
+  </Accordion>
+
+  <Accordion title="S3 upload returns 403 Forbidden">
+    Verify your S3 credentials in the `.env` file. Ensure your S3 bucket permissions allow PUT operations and that the presigned URL hasn't expired (default: 3600 seconds).
+  </Accordion>
+
+  <Accordion title="Worker not processing files">
+    1. Ensure Redis is running: `redis-cli ping` should return `PONG`
+    2. Check that the worker process is running: `npm run worker`
+    3. Review worker logs for errors
+    4. Verify FFmpeg and audiowaveform are installed: `ffmpeg -version` and `audiowaveform --version`
+  </Accordion>
+
+  <Accordion title="File status stuck on 'processing'">
+    Check the worker logs for errors. Common issues:
+    - FFmpeg not installed or not in PATH
+    - audiowaveform not installed
+    - Invalid audio/video file format
+    - Insufficient disk space for temporary files
+  </Accordion>
+
+  <Accordion title="Database connection failed">
+    Ensure MongoDB is running and the DATABASE_URL in your `.env` file is correct. If using Docker Compose, the URL should be `mongodb://root:root@mongodb:27017/processing`.
+  </Accordion>
+</AccordionGroup>

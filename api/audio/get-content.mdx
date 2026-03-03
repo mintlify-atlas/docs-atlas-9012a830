@@ -1,0 +1,217 @@
+---
+title: "Get User Content"
+description: "Retrieve paginated list of user's audio and video files"
+---
+
+## GET /api/v1/contents
+
+Retrieves a paginated list of all audio and video files owned by the authenticated user.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Query Parameters
+
+<ParamField query="page" type="integer" default="1">
+  Page number for pagination (1-indexed)
+</ParamField>
+
+<ParamField query="limit" type="integer" default="10">
+  Number of items per page
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Paginated content results
+  
+  <ResponseField name="audioFiles" type="array">
+    Array of audio file metadata objects
+    
+    <ResponseField name="id" type="string">
+      MongoDB ObjectId of the audio file
+    </ResponseField>
+    
+    <ResponseField name="userId" type="string">
+      Owner's user ID
+    </ResponseField>
+    
+    <ResponseField name="fileName" type="string">
+      Original file name
+    </ResponseField>
+    
+    <ResponseField name="fileType" type="string">
+      MIME type (e.g., "audio/mpeg")
+    </ResponseField>
+    
+    <ResponseField name="fileSize" type="string">
+      File size in bytes (BigInt as string)
+    </ResponseField>
+    
+    <ResponseField name="duration" type="number">
+      Duration in seconds
+    </ResponseField>
+    
+    <ResponseField name="codec" type="string">
+      Audio codec
+    </ResponseField>
+    
+    <ResponseField name="sampleRate" type="integer">
+      Sample rate in Hz
+    </ResponseField>
+    
+    <ResponseField name="bitRate" type="integer">
+      Bit rate in bits per second
+    </ResponseField>
+    
+    <ResponseField name="channels" type="integer">
+      Number of audio channels
+    </ResponseField>
+    
+    <ResponseField name="title" type="string">
+      Track title
+    </ResponseField>
+    
+    <ResponseField name="album" type="string">
+      Album name
+    </ResponseField>
+    
+    <ResponseField name="genre" type="string">
+      Music genre
+    </ResponseField>
+    
+    <ResponseField name="trackNumber" type="integer">
+      Track number
+    </ResponseField>
+    
+    <ResponseField name="comments" type="string">
+      Additional comments
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current status: uploading, processing, ready, failed, or corrupted
+    </ResponseField>
+    
+    <ResponseField name="s3" type="object">
+      S3 metadata and keys
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp of creation
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      ISO 8601 timestamp of last update
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="videoFiles" type="array">
+    Array of video file metadata objects (similar structure with additional video-specific fields like width, height, fps, etc.)
+  </ResponseField>
+  
+  <ResponseField name="pagination" type="object">
+    Pagination information
+    
+    <ResponseField name="page" type="integer">
+      Current page number
+    </ResponseField>
+    
+    <ResponseField name="limit" type="integer">
+      Items per page
+    </ResponseField>
+    
+    <ResponseField name="totalAudioFiles" type="integer">
+      Total number of audio files
+    </ResponseField>
+    
+    <ResponseField name="totalVideoFiles" type="integer">
+      Total number of video files
+    </ResponseField>
+    
+    <ResponseField name="totalPages" type="integer">
+      Total number of pages
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status code on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **200 OK** - Content retrieved successfully
+- **400 Bad Request** - Invalid query parameters
+- **403 Forbidden** - Authentication required
+
+### Example Request
+
+```bash
+curl -X GET "https://api.example.com/api/v1/contents?page=1&limit=10" \
+  -b cookies.txt
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "audioFiles": [
+      {
+        "id": "507f1f77bcf86cd799439011",
+        "userId": "507f191e810c19729de860ea",
+        "fileName": "my-song.mp3",
+        "fileType": "audio/mpeg",
+        "fileSize": "10485760",
+        "duration": 245.5,
+        "codec": "mp3",
+        "sampleRate": 44100,
+        "bitRate": 320000,
+        "channels": 2,
+        "title": "my awesome song",
+        "album": "greatest hits",
+        "genre": "rock",
+        "trackNumber": 1,
+        "comments": "recorded live",
+        "status": "ready",
+        "s3": {
+          "key": "507f191e810c19729de860ea-a1b2c3d4-my-song.mp3",
+          "bucket": "px47-media"
+        },
+        "createdAt": "2026-03-03T10:30:00.000Z",
+        "updatedAt": "2026-03-03T10:35:22.000Z"
+      }
+    ],
+    "videoFiles": [],
+    "pagination": {
+      "page": 1,
+      "limit": 10,
+      "totalAudioFiles": 1,
+      "totalVideoFiles": 0,
+      "totalPages": 1
+    }
+  },
+  "message": "200",
+  "error": null
+}
+```
+
+<Note>
+  This endpoint returns both audio and video files in a single response. Use pagination to efficiently retrieve large collections of media files.
+</Note>
+
+<Warning>
+  The `fileSize` field is returned as a string because it's stored as a BigInt in the database. Convert it to a number carefully to avoid precision loss for very large files.
+</Warning>

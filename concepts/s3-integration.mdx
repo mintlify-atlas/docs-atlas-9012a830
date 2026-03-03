@@ -1,0 +1,634 @@
+---
+title: S3 Integration
+description: 'Pre-signed URLs, direct uploads, and S3 configuration in PX47'
+---
+
+## Overview
+
+PX47 uses **AWS S3** (or S3-compatible storage) with pre-signed URLs to enable direct client-to-S3 uploads. This architecture bypasses the backend server for file uploads, significantly reducing bandwidth costs and improving performance.
+
+<Info>
+  Files never pass through the backend server. The server only generates pre-signed URLs and processes files after they're in S3.
+</Info>
+
+## Pre-signed URLs
+
+Pre-signed URLs are time-limited URLs that grant temporary access to S3 operations (PUT or GET) without requiring AWS credentials in the client.
+
+### How Pre-signed URLs Work
+
+<Steps>
+  <Step title="Client Requests URL">
+    Client sends authenticated request to backend with filename
+    
+    ```bash
+    POST /generate-presigned-url/audio.mp3
+    Authorization: Bearer JWT_TOKEN
+    ```
+  </Step>
+
+  <Step title="Backend Generates URL">
+    Server generates a pre-signed URL valid for 1 hour
+    
+    ```javascript
+    const url = await getSignedUrl(s3Client, command, {
+      expiresIn: 3600, // 1 hour
+    });
+    ```
+  </Step>
+
+  <Step title="Client Uploads">
+    Client uploads file directly to S3 using the pre-signed URL
+    
+    ```bash
+    curl -X PUT "PRE_SIGNED_URL" \
+      -H "Content-Type: audio/mpeg" \
+      --data-binary "@audio.mp3"
+    ```
+  </Step>
+
+  <Step title="Client Confirms">
+    Client notifies backend that upload is complete
+    
+    ```bash
+    POST /fileUploaded/:audioId
+    { "key": "user-uuid-audio.mp3" }
+    ```
+  </Step>
+</Steps>
+
+## S3 Service Implementation
+
+### Bucket Configuration
+
+```javascript backend/config/s3.js
+import { S3, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import {
+  S3_ACCESS_KEY_ID,
+  S3_SECRET_ACCESS_KEY,
+  S3_ENDPOINT,
+  S3_BUCKET_NAME,
+  S3_REGION,
+} from './conf.js';
+
+class Bucket {
+  constructor() {
+    this.Client = new S3({
+      endpoint: S3_ENDPOINT,
+      credentials: {
+        accessKeyId: S3_ACCESS_KEY_ID,
+        secretAccessKey: S3_SECRET_ACCESS_KEY,
+      },
+      region: S3_REGION,
+      forcePathStyle: true, // Required for MinIO and some S3-compatible services
+    });
+  }
+}
+```
+
+<Note>
+  `forcePathStyle: true` is required for MinIO, DigitalOcean Spaces, and other S3-compatible services that use path-style URLs instead of virtual-hosted-style.
+</Note>
+
+### Creating Pre-signed Upload URLs
+
+```javascript backend/config/s3.js
+async CreatePresignedUrl(userId, fileName) {
+  try {
+    // Generate unique S3 key
+    const key = generateS3Key(userId, fileName);
+    // Format: {userId}-{uuid}-{fileName}
+    // Example: user123-abc1234-audio.mp3
+
+    const command = new PutObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: key,
+    });
+
+    // Generate pre-signed URL with 1 hour expiration
+    const url = await getSignedUrl(this.Client, command, {
+      expiresIn: S3_EXPIRES, // 3600 seconds
+    });
+
+    return { url, key };
+  } catch (error) {
+    logger.error(`Presigned URL Error: ${error}`);
+    throw new Error(error);
+  }
+}
+```
+
+**Key generation helper:**
+
+```javascript backend/helpers.js
+import { randomUUID } from 'crypto';
+
+export const generateS3Key = (userId, filename) => {
+  const uniqueKey = randomUUID();
+  const uuid_ = uniqueKey.split('-')[0]; // Use first segment
+  const key = `${userId}-${uuid_}-${filename}`;
+  return key;
+};
+```
+
+<Tip>
+  S3 keys include user ID and UUID to prevent collisions and enable user-based organization.
+</Tip>
+
+### Uploading Files to S3
+
+Workers upload processed files back to S3:
+
+```javascript backend/config/s3.js
+async UploadtoS3(filePath, ContentType, userId) {
+  try {
+    // Read file from local disk
+    const fileBuffer = fs.readFileSync(filePath);
+    
+    // Extract filename and generate S3 key
+    const fileName = filePath
+      .split('/')
+      .pop()
+      .replace(new RegExp(`^${userId}-`), '');
+    const key = generateS3Key(userId, fileName);
+    
+    const upload = new PutObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: key,
+      Body: fileBuffer,
+      ContentType,
+      ContentLength: fileBuffer.length,
+    });
+
+    await this.Client.send(upload);
+
+    // Return public URL
+    const objectUrl = `${S3_BUCKET_OBJECT_URL}${key}`;
+    return { key, objectUrl };
+  } catch (error) {
+    logger.error(`Upload Error: ${error}`);
+    throw new Error(error);
+  }
+}
+```
+
+**Usage in pipeline:**
+
+```javascript
+// Upload converted MP3
+const mp3Upload = await s3.UploadtoS3(
+  mp3File, 
+  'audio/mpeg', 
+  userId
+);
+
+// Upload waveform JSON
+const waveformUpload = await s3.UploadtoS3(
+  waveFormJson,
+  'application/json',
+  userId
+);
+```
+
+### Downloading Files from S3
+
+Workers download files for local processing:
+
+```javascript backend/config/s3.js
+async DownloadFromS3(s3Key) {
+  try {
+    // Extract filename and create local path
+    const fileName = s3Key.split('/').pop();
+    const localPath = await createLocalPath(fileName);
+
+    // Create write stream
+    const fileStream = fs.createWriteStream(localPath);
+
+    const command = new GetObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: s3Key,
+    });
+
+    const response = await this.Client.send(command);
+    
+    // Pipe S3 response body to file
+    response.Body.pipe(fileStream);
+
+    return new Promise((resolve, reject) => {
+      fileStream.on('finish', () => {
+        logger.info(`Downloaded → ${localPath}`);
+        resolve(localPath);
+      });
+      fileStream.on('error', reject);
+    });
+  } catch (error) {
+    logger.error(`Download Error: ${error}`);
+    throw new Error(error);
+  }
+}
+```
+
+<Info>
+  Files are streamed to disk to handle large files efficiently without loading them entirely into memory.
+</Info>
+
+### Generating Access URLs
+
+Generate temporary access URLs for clients to download files:
+
+```javascript backend/config/s3.js
+async GetFileAccess(key) {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: key,
+    });
+    
+    // Generate pre-signed GET URL valid for ~38 minutes
+    const url = await getSignedUrl(this.Client, command, { 
+      expiresIn: 2300 
+    });
+    
+    return url;
+  } catch (error) {
+    logger.error(`Error to access the url ${error}`);
+    throw new Error(error);
+  }
+}
+```
+
+**API endpoint:**
+
+```javascript backend/controller/audioController.js
+export const getContentAccess = async (req, res) => {
+  try {
+    const { key } = req.params;
+    const url = await new Bucket().GetFileAccess(key.trim());
+    successResponse(res, url, status.CREATED);
+  } catch (error) {
+    errorResponse(res, JSON.stringify(error));
+  }
+};
+```
+
+## Environment Configuration
+
+### Required Environment Variables
+
+```bash .env
+# AWS S3 Configuration
+S3_ACCESS_KEY_ID=your-access-key-id
+S3_SECRET_ACCESS_KEY=your-secret-access-key
+S3_ENDPOINT=https://s3.amazonaws.com
+S3_BUCKET_NAME=your-bucket-name
+S3_BUCKET_OBJECT_URL=https://your-bucket.s3.amazonaws.com/
+S3_REGION=us-east-1
+```
+
+<Tabs>
+  <Tab title="AWS S3">
+    ```bash
+    S3_ENDPOINT=https://s3.amazonaws.com
+    S3_BUCKET_NAME=px47-media
+    S3_BUCKET_OBJECT_URL=https://px47-media.s3.amazonaws.com/
+    S3_REGION=us-east-1
+    ```
+  </Tab>
+
+  <Tab title="MinIO">
+    ```bash
+    S3_ENDPOINT=https://minio.example.com
+    S3_BUCKET_NAME=media
+    S3_BUCKET_OBJECT_URL=https://minio.example.com/media/
+    S3_REGION=us-east-1
+    ```
+  </Tab>
+
+  <Tab title="DigitalOcean Spaces">
+    ```bash
+    S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+    S3_BUCKET_NAME=px47-media
+    S3_BUCKET_OBJECT_URL=https://px47-media.nyc3.digitaloceanspaces.com/
+    S3_REGION=us-east-1
+    ```
+  </Tab>
+
+  <Tab title="Cloudflare R2">
+    ```bash
+    S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+    S3_BUCKET_NAME=px47-media
+    S3_BUCKET_OBJECT_URL=https://your-r2-url.com/
+    S3_REGION=auto
+    ```
+  </Tab>
+</Tabs>
+
+### Configuration Constants
+
+```javascript backend/config/constants.js
+export const S3_EXPIRES = 3600; // Pre-signed URL expiration (1 hour)
+export const LOCAL_FOLDER = 'temp-disk'; // Local temp directory
+```
+
+## S3 Bucket Setup
+
+### Bucket Policy
+
+Allow public read access for processed files:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::your-bucket-name/*"]
+    }
+  ]
+}
+```
+
+<Warning>
+  This makes all files publicly readable. For private files, remove this policy and use pre-signed GET URLs exclusively.
+</Warning>
+
+### CORS Configuration
+
+Allow direct uploads from web browsers:
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "PUT", "POST"],
+    "AllowedOrigins": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+<Tip>
+  For production, replace `"AllowedOrigins": ["*"]` with your specific domain:
+  ```json
+  "AllowedOrigins": ["https://yourdomain.com"]
+  ```
+</Tip>
+
+### IAM User Permissions
+
+Create an IAM user with these permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-bucket-name",
+        "arn:aws:s3:::your-bucket-name/*"
+      ]
+    }
+  ]
+}
+```
+
+## Content Types
+
+PX47 automatically detects and sets correct content types:
+
+### Audio Content Types
+
+```javascript backend/config/constants.js
+export const AUDIOMIME = {
+  aac: 'audio/aac',
+  mp3: 'audio/mpeg',
+  opus: 'audio/opus',
+  vorbis: 'audio/vorbis',
+  ac3: 'audio/ac3',
+  eac3: 'audio/eac3',
+  flac: 'audio/flac',
+  pcm_s16le: 'audio/wav',
+};
+```
+
+### Video Content Types
+
+```javascript backend/config/constants.js
+export const VIDEOMIME = {
+  h264: 'video/mp4',
+  hevc: 'video/mp4',
+  vp8: 'video/webm',
+  vp9: 'video/webm',
+  av1: 'video/mp4',
+  mpeg4: 'video/mp4',
+  mpeg2video: 'video/mpeg',
+};
+```
+
+### Content Type Helper
+
+```javascript backend/helpers.js
+export function generateContentType(metadata, streamType = 'video') {
+  if (!metadata || !metadata.streams) return null;
+
+  const stream = metadata.streams.find((s) => s.codec_type === streamType);
+  if (!stream) return null;
+
+  const codec = stream.codec_name;
+
+  if (streamType === 'video') {
+    return VIDEOMIME[codec] || 'video/mp4';
+  }
+
+  if (streamType === 'audio') {
+    return AUDIOMIME[codec] || 'audio/mpeg';
+  }
+
+  return null;
+}
+```
+
+**Usage:**
+
+```javascript
+const VideoContentType = generateContentType(metadata, 'video');
+const AudioContentType = generateContentType(metadata, 'audio');
+
+await s3.UploadtoS3(muteVideo, VideoContentType, userId);
+await s3.UploadtoS3(extractedAudio, AudioContentType, userId);
+```
+
+## S3 Key Organization
+
+### Key Structure
+
+Files are organized with this pattern:
+
+```
+{userId}-{uuid}-{filename}
+```
+
+**Examples:**
+```
+user123-abc1234-song.mp3          (original)
+user123-def5678-song-xyz789.mp3   (processed MP3)
+user123-ghi9012-song-abc123.json  (waveform)
+user123-jkl3456-video.mp4         (original video)
+user123-mno7890-video-pqr123.mp4  (mute video)
+user123-stu4567-video-vwx890.m4a  (extracted audio)
+```
+
+<Info>
+  The UUID ensures uniqueness even when users upload files with the same name multiple times.
+</Info>
+
+### Benefits
+
+<CardGroup cols={2}>
+  <Card title="No Collisions" icon="shield-check">
+    UUID prefix prevents filename conflicts
+  </Card>
+  <Card title="User Organization" icon="users">
+    Easy to list all files for a user
+  </Card>
+  <Card title="Traceability" icon="magnifying-glass">
+    User ID in key enables auditing
+  </Card>
+  <Card title="Cleanup" icon="broom">
+    Can delete all user files by prefix
+  </Card>
+</CardGroup>
+
+## Local File Management
+
+Workers download files to a temporary directory for processing:
+
+### Creating Local Paths
+
+```javascript backend/helpers.js
+export async function createLocalPath(fileName) {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const newFolderPath = path.join(__dirname, LOCAL_FOLDER);
+    
+    // Create temp directory if it doesn't exist
+    await fs.mkdir(newFolderPath, { recursive: true });
+    
+    const finalFullPath = path.join(newFolderPath, fileName);
+    return finalFullPath;
+  } catch (error) {
+    logger.error(`Error while creating local path | error=${error}`);
+    throw new Error(error);
+  }
+}
+```
+
+### Cleanup After Processing
+
+```javascript backend/helpers.js
+export async function deleteLocalFile(filePath) {
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err; // Ignore if file doesn't exist
+  }
+}
+```
+
+**Usage in pipeline:**
+
+```javascript
+try {
+  const localpath = await s3.DownloadFromS3(s3Key);
+  
+  // ... processing ...
+  
+  // Always cleanup
+  await deleteLocalFile(localpath);
+  await deleteLocalFile(mp3File);
+  await deleteLocalFile(waveFormJson);
+} catch (error) {
+  // Cleanup even on error
+  await deleteLocalFile(localpath);
+  throw error;
+}
+```
+
+<Warning>
+  Always clean up local files after processing to avoid filling up disk space.
+</Warning>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Time-Limited URLs" icon="clock">
+    Pre-signed URLs expire after 1 hour. Adjust `S3_EXPIRES` if needed:
+    
+    ```javascript
+    export const S3_EXPIRES = 1800; // 30 minutes
+    ```
+  </Accordion>
+
+  <Accordion title="Credential Protection" icon="lock">
+    Never expose S3 credentials to clients. Only the backend should have access:
+    
+    ```bash
+    # Keep credentials in .env (never commit to git)
+    S3_ACCESS_KEY_ID=...
+    S3_SECRET_ACCESS_KEY=...
+    ```
+  </Accordion>
+
+  <Accordion title="Authentication Required" icon="user-shield">
+    All pre-signed URL generation requires authentication:
+    
+    ```javascript
+    router.post('/generate-presigned-url/:fileName', 
+      AuthMiddleware, // JWT verification required
+      generatePresignedUrl
+    );
+    ```
+  </Accordion>
+
+  <Accordion title="File Type Validation" icon="file-shield">
+    Validate file extensions before generating pre-signed URLs:
+    
+    ```javascript
+    export function CheckExt(FileName) {
+      const _file = FileName?.split('.')[1];
+      const IsAudio = AUDIO_EXTENSIONS.includes(_file);
+      const IsVideo = VIDEO_EXTENSIONS.includes(_file);
+      return { IsAudio, IsVideo };
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Job Processing" icon="list-check" href="/concepts/job-processing">
+    Learn about BullMQ job queues
+  </Card>
+  <Card title="Processing Pipelines" icon="pipe" href="/concepts/pipelines">
+    Explore audio and video processing
+  </Card>
+  <Card title="Environment Config" icon="key" href="/deployment/environment">
+    Complete environment variable reference
+  </Card>
+  <Card title="Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+</CardGroup>

@@ -1,0 +1,115 @@
+---
+title: 'Get Content Access'
+description: 'Generate time-limited presigned URL to access media files from S3'
+---
+
+## POST /api/v1/get-content-access/:key
+
+Generates a time-limited presigned URL for accessing audio or video files stored in S3. This allows secure, temporary access to media files without exposing permanent S3 URLs.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="key" type="string" required>
+  S3 object key of the file to access (obtained from the content metadata).
+  Will be automatically trimmed.
+  
+  **Format:** `userId-uuid-fileName`
+  
+  **Example:** `507f191e810c19729de860ea-a1b2c3d4-my-song.mp3`
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the presigned URL was generated successfully
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Time-limited presigned URL for accessing the file
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status code on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - Presigned URL generated successfully
+- **400 Bad Request** - Invalid key or file not found
+- **403 Forbidden** - Authentication required
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/v1/get-content-access/507f191e810c19729de860ea-a1b2c3d4-my-song.mp3 \
+  -b cookies.txt
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": "https://bucket.s3.amazonaws.com/507f191e810c19729de860ea-a1b2c3d4-my-song.mp3?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=20260303T103000Z&X-Amz-Expires=3600&X-Amz-Signature=...",
+  "message": "201",
+  "error": null
+}
+```
+
+### Usage
+
+1. **Get File Metadata**: First call `/api/v1/contents` to get the list of your files and their S3 keys
+2. **Request Access**: Use the S3 key from the metadata to request a presigned URL
+3. **Access File**: Use the presigned URL to download or stream the file
+4. **URL Expiration**: The presigned URL expires after a set time period (typically 1 hour)
+
+### Example Workflow
+
+```bash
+# Step 1: Get user's content
+curl -X GET "https://api.example.com/api/v1/contents" -b cookies.txt
+
+# Response includes s3.key for each file
+# {
+#   "audioFiles": [{
+#     "s3": { "key": "507f191e810c19729de860ea-a1b2c3d4-my-song.mp3" }
+#   }]
+# }
+
+# Step 2: Request access to specific file
+curl -X POST https://api.example.com/api/v1/get-content-access/507f191e810c19729de860ea-a1b2c3d4-my-song.mp3 \
+  -b cookies.txt
+
+# Step 3: Use the presigned URL to download/stream
+curl -o my-song.mp3 "<presigned-url-from-response>"
+```
+
+### Error Response
+
+**File Not Found (400)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": "NoSuchKey: The specified key does not exist."
+}
+```
+
+<Note>
+  Presigned URLs are time-limited for security. The exact expiration time is configured on the server side. You'll need to request a new URL if the current one expires.
+</Note>
+
+<Warning>
+  Only users who are authenticated can request presigned URLs. The system does not verify ownership of the file - ensure your application logic checks that users can only access their own files.
+</Warning>

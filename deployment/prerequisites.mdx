@@ -1,0 +1,657 @@
+---
+title: System Prerequisites
+description: 'System requirements and prerequisites for running PX47'
+---
+
+## Overview
+
+PX47 requires several system-level tools for media processing. This guide covers installation and verification of all prerequisites.
+
+<CardGroup cols={4}>
+  <Card title="Node.js" icon="node-js">
+    v20 or higher
+  </Card>
+  <Card title="Redis" icon="server">
+    v7 or higher
+  </Card>
+  <Card title="FFmpeg" icon="film">
+    Latest stable
+  </Card>
+  <Card title="audiowaveform" icon="waveform">
+    v1.4.0+
+  </Card>
+</CardGroup>
+
+## Node.js
+
+PX47 requires Node.js 20 or higher for ES modules and modern JavaScript features.
+
+<Tabs>
+  <Tab title="macOS">
+    ### Using Homebrew
+    ```bash
+    brew install node@20
+    ```
+
+    ### Using NVM (Recommended)
+    ```bash
+    # Install NVM
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+
+    # Install Node.js 20
+    nvm install 20
+    nvm use 20
+    nvm alias default 20
+    ```
+
+    ### Verify Installation
+    ```bash
+    node --version  # Should output v20.x.x
+    npm --version   # Should output 10.x.x
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian">
+    ### Using NodeSource Repository
+    ```bash
+    # Install Node.js 20.x
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    ```
+
+    ### Using NVM (Recommended)
+    ```bash
+    # Install NVM
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    
+    # Reload shell
+    source ~/.bashrc
+
+    # Install Node.js 20
+    nvm install 20
+    nvm use 20
+    nvm alias default 20
+    ```
+
+    ### Verify Installation
+    ```bash
+    node --version  # Should output v20.x.x
+    npm --version   # Should output 10.x.x
+    ```
+  </Tab>
+
+  <Tab title="CentOS/RHEL">
+    ### Using NodeSource Repository
+    ```bash
+    # Install Node.js 20.x
+    curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+    sudo yum install -y nodejs
+    ```
+
+    ### Verify Installation
+    ```bash
+    node --version  # Should output v20.x.x
+    npm --version   # Should output 10.x.x
+    ```
+  </Tab>
+
+  <Tab title="Windows">
+    ### Using Official Installer
+    1. Download installer from [nodejs.org](https://nodejs.org/)
+    2. Run the installer (`.msi` file)
+    3. Follow installation wizard
+
+    ### Using Chocolatey
+    ```powershell
+    choco install nodejs-lts
+    ```
+
+    ### Verify Installation
+    ```powershell
+    node --version  # Should output v20.x.x
+    npm --version   # Should output 10.x.x
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  Use NVM (Node Version Manager) to easily switch between Node.js versions.
+</Tip>
+
+## Redis
+
+Redis is required for BullMQ job queues and worker coordination.
+
+<Tabs>
+  <Tab title="macOS">
+    ### Using Homebrew
+    ```bash
+    # Install Redis
+    brew install redis
+
+    # Start Redis service
+    brew services start redis
+
+    # Or run manually
+    redis-server
+    ```
+
+    ### Verify Installation
+    ```bash
+    redis-cli ping  # Should return PONG
+    redis-cli --version
+    ```
+
+    ### Redis Configuration
+    Config file location: `/opt/homebrew/etc/redis.conf`
+
+    ```bash
+    # Edit config
+    brew services stop redis
+    nano /opt/homebrew/etc/redis.conf
+    brew services start redis
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian">
+    ### Using apt
+    ```bash
+    # Update package list
+    sudo apt-get update
+
+    # Install Redis
+    sudo apt-get install redis-server
+
+    # Start Redis
+    sudo systemctl start redis-server
+
+    # Enable on boot
+    sudo systemctl enable redis-server
+    ```
+
+    ### Verify Installation
+    ```bash
+    redis-cli ping  # Should return PONG
+    redis-server --version
+    ```
+
+    ### Redis Configuration
+    Config file: `/etc/redis/redis.conf`
+
+    ```bash
+    # Edit config
+    sudo nano /etc/redis/redis.conf
+
+    # Restart service
+    sudo systemctl restart redis-server
+    ```
+  </Tab>
+
+  <Tab title="Docker">
+    ### Run Redis Container
+    ```bash
+    # Run Redis 7
+    docker run -d \
+      --name redis \
+      -p 6379:6379 \
+      redis:7
+
+    # With persistence
+    docker run -d \
+      --name redis \
+      -p 6379:6379 \
+      -v redis_data:/data \
+      redis:7 redis-server --appendonly yes
+    ```
+
+    ### Verify Installation
+    ```bash
+    docker exec redis redis-cli ping  # Should return PONG
+    ```
+
+    ### Access Redis CLI
+    ```bash
+    docker exec -it redis redis-cli
+    ```
+  </Tab>
+
+  <Tab title="Windows">
+    ### Using Docker (Recommended)
+    ```powershell
+    docker run -d --name redis -p 6379:6379 redis:7
+    ```
+
+    ### Using WSL2
+    1. Install WSL2: `wsl --install`
+    2. Install Ubuntu from Microsoft Store
+    3. Follow Ubuntu installation steps
+
+    <Warning>
+      Redis doesn't officially support Windows. Use Docker or WSL2 for development.
+    </Warning>
+  </Tab>
+</Tabs>
+
+<Info>
+  For production, consider using managed Redis services like Redis Cloud, AWS ElastiCache, or Azure Cache for Redis.
+</Info>
+
+## FFmpeg
+
+FFmpeg is essential for audio/video conversion and metadata extraction.
+
+<Tabs>
+  <Tab title="macOS">
+    ### Using Homebrew
+    ```bash
+    brew install ffmpeg
+    ```
+
+    ### Verify Installation
+    ```bash
+    ffmpeg -version
+    ffprobe -version
+    ```
+
+    ### Test FFmpeg
+    ```bash
+    # Convert audio file
+    ffmpeg -i input.wav -codec:a libmp3lame -b:a 128k output.mp3
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian">
+    ### Using apt
+    ```bash
+    sudo apt-get update
+    sudo apt-get install ffmpeg
+    ```
+
+    ### Build from Source (Latest Version)
+    ```bash
+    # Install dependencies
+    sudo apt-get install -y \
+      autoconf automake build-essential cmake \
+      libass-dev libfreetype6-dev libsdl2-dev \
+      libtool libva-dev libvdpau-dev libvorbis-dev \
+      libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+      pkg-config texinfo wget yasm zlib1g-dev
+
+    # Download and compile FFmpeg
+    cd /tmp
+    wget https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz
+    tar xf ffmpeg-6.0.tar.xz
+    cd ffmpeg-6.0
+    ./configure --enable-gpl --enable-libmp3lame
+    make -j$(nproc)
+    sudo make install
+    ```
+
+    ### Verify Installation
+    ```bash
+    ffmpeg -version
+    ffprobe -version
+    ```
+  </Tab>
+
+  <Tab title="CentOS/RHEL">
+    ### Enable EPEL Repository
+    ```bash
+    sudo yum install epel-release
+    sudo yum localinstall --nogpgcheck https://download1.rpmfusion.org/free/el/rpmfusion-free-release-7.noarch.rpm
+    ```
+
+    ### Install FFmpeg
+    ```bash
+    sudo yum install ffmpeg ffmpeg-devel
+    ```
+
+    ### Verify Installation
+    ```bash
+    ffmpeg -version
+    ```
+  </Tab>
+
+  <Tab title="Windows">
+    ### Using Chocolatey
+    ```powershell
+    choco install ffmpeg
+    ```
+
+    ### Manual Installation
+    1. Download from [ffmpeg.org](https://ffmpeg.org/download.html#build-windows)
+    2. Extract to `C:\ffmpeg`
+    3. Add `C:\ffmpeg\bin` to PATH:
+       - Open System Properties
+       - Environment Variables
+       - Edit PATH
+       - Add `C:\ffmpeg\bin`
+
+    ### Verify Installation
+    ```powershell
+    ffmpeg -version
+    ```
+  </Tab>
+</Tabs>
+
+<Accordion title="Required FFmpeg Codecs">
+  PX47 uses these FFmpeg codecs:
+
+  - **libmp3lame**: MP3 encoding
+  - **aac**: AAC audio encoding
+  - **h264**: H.264 video encoding
+  - **copy**: Stream copying (no re-encoding)
+
+  Verify codec support:
+  ```bash
+  ffmpeg -codecs | grep mp3
+  ffmpeg -codecs | grep aac
+  ```
+</Accordion>
+
+## audiowaveform
+
+audiowaveform is used to generate waveform JSON data for visualization.
+
+<Tabs>
+  <Tab title="macOS">
+    ### Using Homebrew
+    ```bash
+    brew install audiowaveform
+    ```
+
+    ### Verify Installation
+    ```bash
+    audiowaveform --version
+    ```
+
+    ### Test audiowaveform
+    ```bash
+    audiowaveform -i audio.mp3 -o waveform.json --pixels-per-second 10 -b 8
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian">
+    ### Using PPA
+    ```bash
+    sudo add-apt-repository ppa:chris-needham/ppa
+    sudo apt-get update
+    sudo apt-get install audiowaveform
+    ```
+
+    ### Build from Source
+    ```bash
+    # Install dependencies
+    sudo apt-get install -y \
+      git make cmake gcc g++ \
+      libmad0-dev libid3tag0-dev \
+      libsndfile1-dev libgd-dev \
+      libboost-filesystem-dev \
+      libboost-program-options-dev \
+      libboost-regex-dev
+
+    # Clone and build
+    git clone https://github.com/bbc/audiowaveform.git
+    cd audiowaveform
+    mkdir build && cd build
+    cmake ..
+    make
+    sudo make install
+    ```
+
+    ### Verify Installation
+    ```bash
+    audiowaveform --version
+    ```
+  </Tab>
+
+  <Tab title="Docker">
+    audiowaveform is included in the Docker images:
+
+    ```dockerfile
+    FROM node:20-slim
+
+    RUN apt-get update && apt-get install -y \
+        ffmpeg \
+        audiowaveform \
+        && rm -rf /var/lib/apt/lists/*
+    ```
+  </Tab>
+
+  <Tab title="Windows">
+    ### Download Binary
+    1. Download from [GitHub Releases](https://github.com/bbc/audiowaveform/releases)
+    2. Extract to `C:\audiowaveform`
+    3. Add to PATH
+
+    ### Using WSL2 (Recommended)
+    ```bash
+    # In WSL2 Ubuntu
+    sudo apt-get install audiowaveform
+    ```
+
+    ### Verify Installation
+    ```powershell
+    audiowaveform --version
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  audiowaveform generates JSON data used for client-side waveform visualization with libraries like WaveSurfer.js.
+</Info>
+
+## MongoDB
+
+MongoDB stores user data, media metadata, and processing status.
+
+<Tabs>
+  <Tab title="macOS">
+    ### Using Homebrew
+    ```bash
+    # Install MongoDB Community Edition
+    brew tap mongodb/brew
+    brew install mongodb-community
+
+    # Start MongoDB
+    brew services start mongodb-community
+    ```
+
+    ### Verify Installation
+    ```bash
+    mongosh --version
+    mongosh "mongodb://localhost:27017"
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian">
+    ### Install MongoDB 7
+    ```bash
+    # Import MongoDB public GPG key
+    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+      sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+
+    # Add MongoDB repository
+    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] \
+      https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
+      sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+    # Install
+    sudo apt-get update
+    sudo apt-get install -y mongodb-org
+
+    # Start MongoDB
+    sudo systemctl start mongod
+    sudo systemctl enable mongod
+    ```
+
+    ### Verify Installation
+    ```bash
+    mongosh --version
+    sudo systemctl status mongod
+    ```
+  </Tab>
+
+  <Tab title="Docker">
+    ### Run MongoDB Container
+    ```bash
+    docker run -d \
+      --name mongodb \
+      -p 27017:27017 \
+      -e MONGO_INITDB_ROOT_USERNAME=root \
+      -e MONGO_INITDB_ROOT_PASSWORD=root \
+      -v mongo_data:/data/db \
+      mongo:7
+    ```
+
+    ### Verify Installation
+    ```bash
+    docker exec -it mongodb mongosh -u root -p root
+    ```
+  </Tab>
+
+  <Tab title="MongoDB Atlas">
+    Use managed MongoDB Atlas (free tier available):
+
+    1. Sign up at [mongodb.com/atlas](https://www.mongodb.com/atlas)
+    2. Create a free cluster
+    3. Add your IP to whitelist
+    4. Create database user
+    5. Get connection string:
+    
+    ```
+    mongodb+srv://username:password@cluster.xxxxx.mongodb.net/processing
+    ```
+  </Tab>
+</Tabs>
+
+## Verification Script
+
+Create a script to verify all prerequisites:
+
+```bash verify-prerequisites.sh
+#!/bin/bash
+
+echo "Checking prerequisites..."
+echo ""
+
+# Node.js
+if command -v node &> /dev/null; then
+    NODE_VERSION=$(node --version)
+    echo "✓ Node.js: $NODE_VERSION"
+else
+    echo "✗ Node.js: Not installed"
+fi
+
+# npm
+if command -v npm &> /dev/null; then
+    NPM_VERSION=$(npm --version)
+    echo "✓ npm: v$NPM_VERSION"
+else
+    echo "✗ npm: Not installed"
+fi
+
+# Redis
+if command -v redis-cli &> /dev/null; then
+    REDIS_VERSION=$(redis-cli --version | awk '{print $2}')
+    echo "✓ Redis: $REDIS_VERSION"
+    
+    # Test connection
+    if redis-cli ping &> /dev/null; then
+        echo "  ✓ Redis is running"
+    else
+        echo "  ✗ Redis is not running"
+    fi
+else
+    echo "✗ Redis: Not installed"
+fi
+
+# FFmpeg
+if command -v ffmpeg &> /dev/null; then
+    FFMPEG_VERSION=$(ffmpeg -version | head -n1 | awk '{print $3}')
+    echo "✓ FFmpeg: $FFMPEG_VERSION"
+else
+    echo "✗ FFmpeg: Not installed"
+fi
+
+# FFprobe
+if command -v ffprobe &> /dev/null; then
+    echo "✓ FFprobe: Installed"
+else
+    echo "✗ FFprobe: Not installed"
+fi
+
+# audiowaveform
+if command -v audiowaveform &> /dev/null; then
+    AUDIOWAVEFORM_VERSION=$(audiowaveform --version 2>&1 | head -n1)
+    echo "✓ audiowaveform: $AUDIOWAVEFORM_VERSION"
+else
+    echo "✗ audiowaveform: Not installed"
+fi
+
+echo ""
+echo "Verification complete!"
+```
+
+Run the script:
+```bash
+chmod +x verify-prerequisites.sh
+./verify-prerequisites.sh
+```
+
+## System Requirements
+
+### Minimum Requirements
+
+<CardGroup cols={2}>
+  <Card title="CPU" icon="microchip">
+    2 cores (4 recommended)
+  </Card>
+  <Card title="RAM" icon="memory">
+    4 GB (8 GB recommended)
+  </Card>
+  <Card title="Disk" icon="hard-drive">
+    20 GB free space
+  </Card>
+  <Card title="Network" icon="wifi">
+    Stable internet for S3 access
+  </Card>
+</CardGroup>
+
+### Recommended Production Specs
+
+<CardGroup cols={2}>
+  <Card title="CPU" icon="microchip">
+    4+ cores for parallel processing
+  </Card>
+  <Card title="RAM" icon="memory">
+    16 GB for multiple workers
+  </Card>
+  <Card title="Disk" icon="hard-drive">
+    SSD with 100+ GB
+  </Card>
+  <Card title="Network" icon="wifi">
+    High bandwidth for media uploads
+  </Card>
+</CardGroup>
+
+<Info>
+  Workers can be scaled horizontally across multiple machines for high-volume processing.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get the API running with your first upload
+  </Card>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="Environment Variables" icon="key" href="/deployment/environment">
+    Configure your environment
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand the system design
+  </Card>
+</CardGroup>

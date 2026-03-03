@@ -1,0 +1,672 @@
+---
+title: Docker Deployment
+description: 'Deploy PX47 with Docker Compose including all services'
+---
+
+## Overview
+
+Deploy PX47 as a complete containerized stack with Docker Compose. This includes the API server, worker processes, Redis, and MongoDB.
+
+<Info>
+  Docker automatically installs all prerequisites (FFmpeg, audiowaveform, Redis, MongoDB) inside containers.
+</Info>
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker">
+    [Install Docker Engine](https://docs.docker.com/engine/install/)
+  </Card>
+  <Card title="Docker Compose" icon="layer-group">
+    Included with Docker Desktop, or [install separately](https://docs.docker.com/compose/install/)
+  </Card>
+</CardGroup>
+
+## Docker Compose Configuration
+
+The project includes a complete `docker-compose.yaml`:
+
+```yaml docker-compose.yaml
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: processing_api
+    restart: always
+    env_file:
+      - ./backend/.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+      - redis
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    container_name: processing_worker
+    restart: always
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - mongodb
+      - redis
+
+  mongodb:
+    image: mongo:7
+    container_name: processing_mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7
+    container_name: processing_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mongo_data:
+  redis_data:
+```
+
+<Note>
+  This configuration creates 4 services: backend API, worker, MongoDB, and Redis with persistent volumes.
+</Note>
+
+## Dockerfile Configurations
+
+### Backend API Dockerfile
+
+```dockerfile backend/Dockerfile
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    audiowaveform \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+RUN npx prisma generate
+
+EXPOSE 3000
+
+CMD ["node", "config/server.js"]
+```
+
+### Worker Dockerfile
+
+```dockerfile backend/worker/Dockerfile
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    audiowaveform \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY .. .
+
+RUN npx prisma generate
+
+CMD ["node", "config/worker.js"]
+```
+
+<Tip>
+  Both containers include FFmpeg and audiowaveform for media processing.
+</Tip>
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Clone Repository">
+    ```bash
+    git clone <repository-url>
+    cd px47
+    ```
+  </Step>
+
+  <Step title="Configure Environment">
+    Create `.env` file in the `backend` directory:
+
+    ```bash backend/.env
+    NODE_ENV=production
+    PORT=3000
+    DATABASE_URL="mongodb://root:root@mongodb:27017/processing?authSource=admin"
+    JWT_SECRET=your-production-secret-change-this
+
+    # Redis (Docker service name)
+    REDIS_URL=redis://redis:6379
+
+    # S3 Configuration
+    S3_ACCESS_KEY_ID=your-access-key
+    S3_SECRET_ACCESS_KEY=your-secret-key
+    S3_ENDPOINT=https://s3.amazonaws.com
+    S3_BUCKET_NAME=your-bucket-name
+    S3_BUCKET_OBJECT_URL=https://your-bucket.s3.amazonaws.com/
+    S3_REGION=us-east-1
+    ```
+
+    <Warning>
+      Use Docker service names (`mongodb`, `redis`) in connection strings, not `localhost`.
+    </Warning>
+  </Step>
+
+  <Step title="Build and Start Services">
+    ```bash
+    docker-compose up -d --build
+    ```
+
+    This command:
+    - Builds Docker images for backend and worker
+    - Pulls MongoDB and Redis images
+    - Starts all services in detached mode
+  </Step>
+
+  <Step title="Initialize Database">
+    Push Prisma schema to MongoDB:
+
+    ```bash
+    docker-compose exec backend npx prisma db push
+    ```
+  </Step>
+
+  <Step title="Verify Services">
+    Check that all services are running:
+
+    ```bash
+    docker-compose ps
+    ```
+
+    Expected output:
+    ```
+    NAME                    STATUS              PORTS
+    processing_api          Up 2 minutes        0.0.0.0:3000->3000/tcp
+    processing_worker       Up 2 minutes
+    processing_mongodb      Up 2 minutes        0.0.0.0:27017->27017/tcp
+    processing_redis        Up 2 minutes        0.0.0.0:6379->6379/tcp
+    ```
+  </Step>
+</Steps>
+
+## Scaling Workers
+
+### Scale Workers Horizontally
+
+Run multiple worker instances for parallel processing:
+
+```bash
+# Scale to 3 workers
+docker-compose up -d --scale worker=3
+```
+
+<Info>
+  BullMQ automatically distributes jobs across all worker instances.
+</Info>
+
+### Dynamic Scaling
+
+Modify `docker-compose.yaml` to define replica count:
+
+```yaml
+services:
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    restart: always
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - mongodb
+      - redis
+    deploy:
+      replicas: 3  # Run 3 worker instances
+```
+
+Then deploy:
+
+```bash
+docker-compose up -d
+```
+
+## Service Management
+
+### View Logs
+
+<Tabs>
+  <Tab title="All Services">
+    ```bash
+    docker-compose logs -f
+    ```
+  </Tab>
+
+  <Tab title="Backend Only">
+    ```bash
+    docker-compose logs -f backend
+    ```
+  </Tab>
+
+  <Tab title="Worker Only">
+    ```bash
+    docker-compose logs -f worker
+    ```
+  </Tab>
+
+  <Tab title="Redis">
+    ```bash
+    docker-compose logs -f redis
+    ```
+  </Tab>
+</Tabs>
+
+### Restart Services
+
+```bash
+# Restart all services
+docker-compose restart
+
+# Restart specific service
+docker-compose restart backend
+docker-compose restart worker
+```
+
+### Stop Services
+
+```bash
+# Stop all services (keep data)
+docker-compose stop
+
+# Stop and remove containers (keep volumes)
+docker-compose down
+
+# Stop and remove everything including volumes
+docker-compose down -v
+```
+
+<Warning>
+  `docker-compose down -v` deletes all database data. Use with caution.
+</Warning>
+
+### Update Services
+
+```bash
+# Pull latest code
+git pull
+
+# Rebuild and restart
+docker-compose up -d --build
+```
+
+## Production Optimizations
+
+### Resource Limits
+
+Add resource constraints to prevent memory issues:
+
+```yaml docker-compose.yaml
+services:
+  backend:
+    build: ./backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+```
+
+### Health Checks
+
+Add health checks for better reliability:
+
+```yaml docker-compose.yaml
+services:
+  backend:
+    build: ./backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  mongodb:
+    image: mongo:7
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+### Logging Configuration
+
+Configure logging drivers:
+
+```yaml docker-compose.yaml
+services:
+  backend:
+    build: ./backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+### Network Isolation
+
+Create isolated network for services:
+
+```yaml docker-compose.yaml
+services:
+  backend:
+    networks:
+      - frontend
+      - backend
+
+  worker:
+    networks:
+      - backend
+
+  mongodb:
+    networks:
+      - backend
+
+  redis:
+    networks:
+      - backend
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
+```
+
+## Reverse Proxy Setup
+
+### Nginx Configuration
+
+Add Nginx as reverse proxy:
+
+```yaml docker-compose.yaml
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: processing_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+```
+
+```nginx nginx.conf
+http {
+    upstream backend {
+        server backend:3000;
+    }
+
+    server {
+        listen 80;
+        server_name api.yourdomain.com;
+
+        # Redirect to HTTPS
+        return 301 https://$server_name$request_uri;
+    }
+
+    server {
+        listen 443 ssl http2;
+        server_name api.yourdomain.com;
+
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+        location / {
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+        }
+    }
+}
+```
+
+### Traefik Configuration
+
+Alternatively, use Traefik for automatic SSL:
+
+```yaml docker-compose.yaml
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=your@email.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+
+  backend:
+    build: ./backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.yourdomain.com`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+```
+
+## Monitoring
+
+### Docker Stats
+
+```bash
+# Real-time resource usage
+docker stats
+
+# Specific services
+docker stats processing_api processing_worker
+```
+
+### Inspect Services
+
+```bash
+# Service details
+docker-compose ps -a
+
+# Container details
+docker inspect processing_api
+
+# Network details
+docker network inspect px47_default
+```
+
+## Backup and Restore
+
+### Backup MongoDB
+
+```bash
+# Backup
+docker-compose exec mongodb mongodump \
+  --username root \
+  --password root \
+  --authenticationDatabase admin \
+  --out /data/backup
+
+# Copy backup out of container
+docker cp processing_mongodb:/data/backup ./mongodb-backup
+```
+
+### Restore MongoDB
+
+```bash
+# Copy backup into container
+docker cp ./mongodb-backup processing_mongodb:/data/backup
+
+# Restore
+docker-compose exec mongodb mongorestore \
+  --username root \
+  --password root \
+  --authenticationDatabase admin \
+  /data/backup
+```
+
+### Backup Redis
+
+```bash
+# Trigger save
+docker-compose exec redis redis-cli SAVE
+
+# Copy RDB file
+docker cp processing_redis:/data/dump.rdb ./redis-backup.rdb
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Container Won't Start" icon="circle-exclamation">
+    Check logs for errors:
+    ```bash
+    docker-compose logs backend
+    docker-compose logs worker
+    ```
+
+    Common issues:
+    - Missing environment variables
+    - Port conflicts
+    - Permission issues
+  </Accordion>
+
+  <Accordion title="Cannot Connect to MongoDB" icon="database">
+    Verify connection string in `.env`:
+    ```bash
+    DATABASE_URL="mongodb://root:root@mongodb:27017/processing?authSource=admin"
+    ```
+
+    Check if MongoDB is running:
+    ```bash
+    docker-compose ps mongodb
+    ```
+  </Accordion>
+
+  <Accordion title="Worker Not Processing Jobs" icon="gears">
+    Check Redis connection:
+    ```bash
+    docker-compose exec redis redis-cli ping
+    ```
+
+    View worker logs:
+    ```bash
+    docker-compose logs -f worker
+    ```
+  </Accordion>
+
+  <Accordion title="Out of Disk Space" icon="hard-drive">
+    Clean up Docker resources:
+    ```bash
+    # Remove unused containers
+    docker container prune
+
+    # Remove unused images
+    docker image prune -a
+
+    # Remove unused volumes
+    docker volume prune
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="key" href="/deployment/environment">
+    Complete configuration reference
+  </Card>
+  <Card title="Prerequisites" icon="wrench" href="/deployment/prerequisites">
+    System requirements and dependencies
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand the system design
+  </Card>
+  <Card title="Workers" icon="gears" href="/architecture/workers">
+    Worker architecture and scaling
+  </Card>
+</CardGroup>

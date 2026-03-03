@@ -1,0 +1,127 @@
+---
+title: 'Register User'
+description: 'Create a new user account'
+---
+
+## POST /api/v1/auth/register
+
+Registers a new user with email and password credentials.
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  User's email address. Must be a valid email format. Will be converted to lowercase.
+  
+  **Validation:**
+  - Must be a valid email address
+  - Automatically trimmed and converted to lowercase
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password. Must meet minimum security requirements.
+  
+  **Validation:**
+  - Minimum 6 characters
+  - Will be hashed using bcrypt with salt rounds of 7
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the registration was successful
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Contains the newly created user details
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the created user
+  </ResponseField>
+  
+  <ResponseField name="email" type="string">
+    The registered email address (lowercase)
+  </ResponseField>
+  
+  <ResponseField name="password" type="string">
+    Bcrypt hashed password
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Success message: "User Registered Successfully"
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - User successfully registered
+- **400 Bad Request** - Validation error or user already exists
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "securepassword123"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f1f77bcf86cd799439011",
+    "email": "user@example.com",
+    "password": "$2b$07$hashedpassword..."
+  },
+  "message": "User Registered Successfully",
+  "error": null
+}
+```
+
+### Error Responses
+
+**User Already Exists (400)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": {
+    "message": "User Already Exists"
+  }
+}
+```
+
+**Validation Error (400)**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": {
+    "issues": [
+      {
+        "code": "invalid_string",
+        "message": "Invalid email address",
+        "path": ["email"]
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  This endpoint does not require authentication. Passwords are automatically hashed before storage.
+</Note>
+
+<Warning>
+  Email addresses are case-insensitive and automatically converted to lowercase. Ensure your client handles this appropriately.
+</Warning>

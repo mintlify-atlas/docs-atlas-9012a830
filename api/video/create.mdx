@@ -1,0 +1,223 @@
+---
+title: 'Create Video'
+description: 'Create a new video file metadata entry'
+---
+
+## POST /api/v1/video
+
+Creates a new video file metadata entry in the database. This is typically called before uploading the actual video file to S3.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Request Body
+
+<ParamField body="status" type="string" required>
+  Current status of the video file.
+  
+  **Allowed values:** `uploading`, `processing`, `ready`, `failed`, `corrupted`
+</ParamField>
+
+<ParamField body="audioId" type="string">
+  Optional reference to an associated audio file (MongoDB ObjectId). 2-255 characters.
+</ParamField>
+
+<ParamField body="s3" type="object" default="{}">
+  S3 metadata as JSON object (optional)
+</ParamField>
+
+<ParamField body="codec" type="string">
+  Video codec (e.g., "h264", "h265", "vp9"). Max 255 characters.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Video title. Max 255 characters.
+</ParamField>
+
+<ParamField body="album" type="string">
+  Album or collection name. Max 255 characters.
+</ParamField>
+
+<ParamField body="genre" type="string">
+  Video genre or category. Max 255 characters.
+</ParamField>
+
+<ParamField body="trackNumber" type="integer">
+  Track or episode number (1-255)
+</ParamField>
+
+<ParamField body="duration" type="number">
+  Duration in seconds (must be >= 0)
+</ParamField>
+
+<ParamField body="bitRate" type="integer">
+  Bit rate in bits per second. Must be >= 1.
+</ParamField>
+
+<ParamField body="format_name" type="string">
+  Container format (e.g., "mp4", "matroska"). Max 255 characters.
+</ParamField>
+
+<ParamField body="width" type="integer">
+  Video width in pixels. Must be >= 1.
+</ParamField>
+
+<ParamField body="height" type="integer">
+  Video height in pixels. Must be >= 1.
+</ParamField>
+
+<ParamField body="pix_fmt" type="string">
+  Pixel format (e.g., "yuv420p"). Max 255 characters.
+</ParamField>
+
+<ParamField body="fps" type="integer">
+  Frames per second
+</ParamField>
+
+<ParamField body="aspect_ratio" type="string">
+  Display aspect ratio (e.g., "16:9"). Max 255 characters.
+</ParamField>
+
+<ParamField body="color_space" type="string">
+  Color space (e.g., "bt709"). Max 255 characters.
+</ParamField>
+
+<ParamField body="color_primaries" type="string">
+  Color primaries (e.g., "bt709"). Max 255 characters.
+</ParamField>
+
+<ParamField body="color_transfer" type="string">
+  Color transfer characteristics. Max 255 characters.
+</ParamField>
+
+<ParamField body="language" type="string">
+  Audio language code (e.g., "eng"). Max 255 characters.
+</ParamField>
+
+<ParamField body="has_audio" type="boolean">
+  Whether the video contains an audio stream
+</ParamField>
+
+<ParamField body="size" type="bigint">
+  File size in bytes. Must be > 0.
+</ParamField>
+
+<ParamField body="fileName" type="string">
+  Original file name. Max 255 characters.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the video was created successfully
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Created video file metadata including the generated ID
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the created video entry
+  </ResponseField>
+  
+  <ResponseField name="userId" type="string">
+    User ID (automatically set from authenticated user)
+  </ResponseField>
+  
+  All other fields from the request body are also included
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  "Video created"
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **201 Created** - Video metadata created successfully
+- **400 Bad Request** - Validation error
+- **403 Forbidden** - Authentication required
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/v1/video \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "status": "uploading",
+    "fileName": "my-video.mp4",
+    "codec": "h264",
+    "title": "My Awesome Video",
+    "duration": 120.5,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "bitRate": 5000000,
+    "format_name": "mp4",
+    "pix_fmt": "yuv420p",
+    "aspect_ratio": "16:9",
+    "has_audio": true,
+    "size": "52428800"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "507f1f77bcf86cd799439012",
+    "userId": "507f191e810c19729de860ea",
+    "status": "uploading",
+    "fileName": "my-video.mp4",
+    "codec": "h264",
+    "title": "my awesome video",
+    "duration": 120.5,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "bitRate": 5000000,
+    "format_name": "mp4",
+    "pix_fmt": "yuv420p",
+    "aspect_ratio": "16:9",
+    "has_audio": true,
+    "size": "52428800"
+  },
+  "message": "Video created",
+  "error": null
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "data": null,
+  "message": null,
+  "error": {
+    "issues": [
+      {
+        "code": "too_small",
+        "message": "width must be >= 1",
+        "path": ["width"]
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  String fields like `title`, `codec`, `format_name`, and `fileName` are automatically trimmed and converted to lowercase.
+</Note>
+
+<Warning>
+  The `userId` is automatically extracted from the JWT token and should not be included in the request body. Video processing is more resource-intensive than audio.
+</Warning>

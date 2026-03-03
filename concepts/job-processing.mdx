@@ -1,0 +1,737 @@
+---
+title: Job Processing
+description: 'BullMQ job queues, Redis integration, and job lifecycle in PX47'
+---
+
+## Overview
+
+PX47 uses **BullMQ** with **Redis** to implement a robust job queue system. When a file upload is confirmed, a job is added to the queue and processed asynchronously by worker processes.
+
+<Info>
+  Jobs are processed asynchronously, allowing the API to respond instantly while processing happens in the background.
+</Info>
+
+## Queue Architecture
+
+### Producer-Consumer Pattern
+
+```mermaid
+sequenceDiagram
+    API->>Redis: Add job to queue
+    Redis-->>API: Job queued (returns immediately)
+    Worker->>Redis: Poll for jobs
+    Redis-->>Worker: Deliver job
+    Worker->>Worker: Process media file
+    Worker->>Redis: Mark job complete
+    Worker->>Database: Update status='ready'
+```
+
+<CardGroup cols={2}>
+  <Card title="Producer" icon="server">
+    **API Server** adds jobs to the queue when clients confirm uploads
+  </Card>
+  <Card title="Consumer" icon="gears">
+    **Worker Processes** consume and execute jobs from the queue
+  </Card>
+  <Card title="Queue" icon="list">
+    **Redis** stores jobs and manages queue state
+  </Card>
+  <Card title="Database" icon="database">
+    **MongoDB** persists job results and metadata
+  </Card>
+</CardGroup>
+
+## Queue Setup
+
+### Redis Connection
+
+```javascript backend/config/redis.js
+import Redis from 'ioredis';
+import { REDIS_URL, NODE_ENV } from '../config/conf.js';
+
+let redis;
+
+if (!redis) {
+  redis = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: null, // Required for BullMQ
+    enableReadyCheck: true,
+  });
+}
+
+if (NODE_ENV !== 'production') {
+  global.redis = global.redis || redis;
+}
+
+export default redis;
+```
+
+<Warning>
+  `maxRetriesPerRequest: null` is **required** for BullMQ to work correctly with ioredis.
+</Warning>
+
+### Queue Initialization
+
+```javascript backend/jobs/audioWorker.js
+import { Queue, Worker } from 'bullmq';
+import redis from '../config/redis.js';
+
+class AudioWorker {
+  constructor() {
+    this.redis = redis;
+    this.queueName = 'audio-processing';
+
+    // Queue for adding jobs (used by API)
+    this.audioQueue = new Queue(this.queueName, {
+      connection: this.redis,
+    });
+  }
+
+  runAudioWorker() {
+    // Worker for consuming jobs (used by worker process)
+    const processAudio = new Worker(
+      this.queueName,
+      async (job) => await audioPreprocessing(job),
+      { connection: this.redis },
+    );
+
+    processAudio.on('completed', (job) => {
+      logger.info(`Audio processing completed | ${job.id}`);
+    });
+
+    processAudio.on('failed', (job, err) => {
+      logger.error(`Audio processing failed | ${job.id} | ${err.message}`);
+    });
+  }
+}
+```
+
+## Adding Jobs to Queue
+
+### From API Service
+
+```javascript backend/services/audioService.js
+import { WorkService } from '../jobs/index.js';
+
+async fileUploaded(audioData, audioId, key, userId) {
+  try {
+    // Get the audio queue instance
+    const { audioQueue } = new WorkService().getQueues();
+    
+    // Add job to queue
+    await audioQueue.add('audio-processing', {
+      audioId: audioId,
+      s3Key: key,
+      userId: userId,
+    });
+    
+    // Update status to 'processing'
+    audioData.userId = userId;
+    const updatedData = await this.UpdateAudioService(
+      audioData,
+      audioId,
+      userId,
+    );
+    
+    return updatedData;
+  } catch (error) {
+    logger.error(`Error | fx=fileUploaded | error=${error}`);
+  }
+}
+```
+
+### Job Data Structure
+
+**Audio Job:**
+```javascript
+{
+  audioId: 'clx123...',
+  s3Key: 'user123-abc-audio.mp3',
+  userId: 'user123'
+}
+```
+
+**Video Job:**
+```javascript
+{
+  videoId: 'clx456...',
+  s3Key: 'user123-def-video.mp4',
+  userId: 'user123'
+}
+```
+
+## Job Lifecycle
+
+<Steps>
+  <Step title="Waiting" icon="clock">
+    Job is added to the queue and waits for an available worker
+    
+    ```javascript
+    await audioQueue.add('audio-processing', jobData);
+    ```
+  </Step>
+
+  <Step title="Active" icon="play">
+    Worker claims the job and starts processing
+    
+    ```javascript
+    worker.on('active', (job) => {
+      logger.info(`Job ${job.id} is now active`);
+    });
+    ```
+  </Step>
+
+  <Step title="Processing" icon="gears">
+    Worker executes the pipeline function:
+    
+    ```javascript
+    const processAudio = new Worker(
+      'audio-processing',
+      async (job) => await audioPreprocessing(job),
+      { connection: redis }
+    );
+    ```
+  </Step>
+
+  <Step title="Completed" icon="check">
+    Job finishes successfully
+    
+    ```javascript
+    worker.on('completed', (job, result) => {
+      logger.info(`Job ${job.id} completed`, result);
+    });
+    ```
+  </Step>
+
+  <Step title="Failed" icon="x">
+    Job encounters an error (will retry based on configuration)
+    
+    ```javascript
+    worker.on('failed', (job, error) => {
+      logger.error(`Job ${job.id} failed: ${error.message}`);
+    });
+    ```
+  </Step>
+</Steps>
+
+## Job Options
+
+### Basic Job Options
+
+```javascript
+await audioQueue.add('audio-processing', jobData, {
+  // Job identification
+  jobId: 'custom-job-id',
+  
+  // Retry configuration
+  attempts: 3,
+  backoff: {
+    type: 'exponential',
+    delay: 2000, // Start with 2 seconds
+  },
+  
+  // Timeout
+  timeout: 300000, // 5 minutes
+  
+  // Priority (lower = higher priority)
+  priority: 1,
+  
+  // Delay
+  delay: 0, // Start immediately
+  
+  // Remove on complete/fail
+  removeOnComplete: 100, // Keep last 100 completed jobs
+  removeOnFail: 50,      // Keep last 50 failed jobs
+});
+```
+
+### Retry Strategies
+
+<Tabs>
+  <Tab title="Exponential Backoff">
+    Retry with exponentially increasing delays:
+    
+    ```javascript
+    await audioQueue.add('audio-processing', jobData, {
+      attempts: 5,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+    });
+    ```
+    
+    **Retry schedule:**
+    - Attempt 1: Immediate
+    - Attempt 2: 1 second delay
+    - Attempt 3: 2 seconds delay
+    - Attempt 4: 4 seconds delay
+    - Attempt 5: 8 seconds delay
+  </Tab>
+
+  <Tab title="Fixed Backoff">
+    Retry with fixed delays:
+    
+    ```javascript
+    await audioQueue.add('audio-processing', jobData, {
+      attempts: 3,
+      backoff: {
+        type: 'fixed',
+        delay: 5000, // Always 5 seconds
+      },
+    });
+    ```
+    
+    **Retry schedule:**
+    - Attempt 1: Immediate
+    - Attempt 2: 5 seconds delay
+    - Attempt 3: 5 seconds delay
+  </Tab>
+
+  <Tab title="Custom Backoff">
+    Implement custom retry logic:
+    
+    ```javascript
+    await audioQueue.add('audio-processing', jobData, {
+      attempts: 5,
+      backoff: {
+        type: 'custom',
+      },
+    });
+    
+    // In worker
+    const worker = new Worker(
+      'audio-processing',
+      async (job) => { /* ... */ },
+      {
+        connection: redis,
+        settings: {
+          backoffStrategy: (attemptsMade) => {
+            // Custom calculation
+            return Math.min(attemptsMade * 1000, 30000);
+          },
+        },
+      }
+    );
+    ```
+  </Tab>
+</Tabs>
+
+### Job Priority
+
+```javascript
+// High priority job (processed first)
+await audioQueue.add('audio-processing', urgentJob, {
+  priority: 1,
+});
+
+// Normal priority
+await audioQueue.add('audio-processing', normalJob, {
+  priority: 5,
+});
+
+// Low priority (processed last)
+await audioQueue.add('audio-processing', lowPriorityJob, {
+  priority: 10,
+});
+```
+
+<Note>
+  Lower priority numbers are processed first. Default priority is 0.
+</Note>
+
+## Worker Configuration
+
+### Concurrency
+
+Control how many jobs a worker processes simultaneously:
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => await audioPreprocessing(job),
+  {
+    connection: redis,
+    concurrency: 5, // Process up to 5 jobs at once
+  }
+);
+```
+
+<Warning>
+  FFmpeg is CPU-intensive. Set concurrency based on available CPU cores. Recommended: `concurrency = CPU_CORES / 2`
+</Warning>
+
+### Rate Limiting
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => await audioPreprocessing(job),
+  {
+    connection: redis,
+    limiter: {
+      max: 10,        // Maximum 10 jobs
+      duration: 1000, // Per second
+    },
+  }
+);
+```
+
+### Lock Duration
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => await audioPreprocessing(job),
+  {
+    connection: redis,
+    lockDuration: 60000, // 60 seconds
+  }
+);
+```
+
+<Info>
+  If a job doesn't complete within `lockDuration`, it's considered stalled and may be retried by another worker.
+</Info>
+
+## Queue Management
+
+### Getting Queue Metrics
+
+```javascript
+// Get job counts
+const counts = await audioQueue.getJobCounts();
+console.log(counts);
+// {
+//   waiting: 5,
+//   active: 2,
+//   completed: 100,
+//   failed: 3,
+//   delayed: 0,
+//   paused: 0,
+// }
+
+// Get waiting jobs
+const waitingJobs = await audioQueue.getWaiting();
+console.log(`${waitingJobs.length} jobs waiting`);
+
+// Get active jobs
+const activeJobs = await audioQueue.getActive();
+for (const job of activeJobs) {
+  console.log(`Job ${job.id}: ${job.data.s3Key}`);
+}
+
+// Get failed jobs
+const failedJobs = await audioQueue.getFailed();
+for (const job of failedJobs) {
+  console.log(`Failed job ${job.id}: ${job.failedReason}`);
+}
+```
+
+### Pausing and Resuming
+
+```javascript
+// Pause queue (stop processing new jobs)
+await audioQueue.pause();
+
+// Resume queue
+await audioQueue.resume();
+
+// Check if paused
+const isPaused = await audioQueue.isPaused();
+console.log(`Queue is ${isPaused ? 'paused' : 'active'}`);
+```
+
+### Cleaning Up Jobs
+
+```javascript
+// Remove completed jobs older than 1 hour
+await audioQueue.clean(3600 * 1000, 100, 'completed');
+
+// Remove failed jobs older than 24 hours
+await audioQueue.clean(24 * 3600 * 1000, 50, 'failed');
+
+// Drain queue (remove all waiting jobs)
+await audioQueue.drain();
+
+// Obliterate queue (remove all jobs, including active)
+await audioQueue.obliterate({ force: true });
+```
+
+<Warning>
+  `obliterate()` removes ALL jobs and cannot be undone. Use with caution.
+</Warning>
+
+## Job Progress Reporting
+
+### Updating Progress
+
+```javascript backend/pipeline/audioPipeline.js
+export async function audioPreprocessing(job) {
+  try {
+    await job.updateProgress(0);
+    
+    // Download from S3
+    const localpath = await s3.DownloadFromS3(s3Key);
+    await job.updateProgress(20);
+    
+    // Convert to MP3
+    const mp3File = await audio.ConvertToMp3();
+    await job.updateProgress(40);
+    
+    // Extract metadata
+    const metadata = await audio.ExtractMetadata();
+    await job.updateProgress(60);
+    
+    // Generate waveform
+    const waveFormJson = await audio.ExtractWaveform();
+    await job.updateProgress(80);
+    
+    // Upload to S3
+    await s3.UploadtoS3(mp3File, 'audio/mpeg', userId);
+    await job.updateProgress(100);
+    
+    return result;
+  } catch (error) {
+    throw error;
+  }
+}
+```
+
+### Listening to Progress
+
+```javascript
+worker.on('progress', (job, progress) => {
+  console.log(`Job ${job.id} is ${progress}% complete`);
+});
+```
+
+## Error Handling
+
+### Handling Failed Jobs
+
+```javascript
+worker.on('failed', async (job, error) => {
+  logger.error(`Job ${job.id} failed`, {
+    error: error.message,
+    stack: error.stack,
+    data: job.data,
+    attemptsMade: job.attemptsMade,
+    attemptsMax: job.opts.attempts,
+  });
+  
+  // Send notification, save to database, etc.
+  if (job.attemptsMade >= job.opts.attempts) {
+    // All retries exhausted
+    await notifyJobFailed(job);
+  }
+});
+```
+
+### Graceful Shutdown
+
+```javascript backend/config/worker.js
+const workService = new WorkService();
+workService.startAll();
+
+// Handle shutdown signals
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing workers gracefully...');
+  await worker.close();
+  await redis.quit();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, closing workers gracefully...');
+  await worker.close();
+  await redis.quit();
+  process.exit(0);
+});
+```
+
+### Retry Failed Jobs
+
+```javascript
+// Retry a specific job
+const failedJob = await audioQueue.getJob('job-id');
+if (failedJob) {
+  await failedJob.retry();
+}
+
+// Retry all failed jobs
+const failedJobs = await audioQueue.getFailed();
+for (const job of failedJobs) {
+  await job.retry();
+}
+```
+
+## Job Metadata Helper
+
+```javascript backend/helpers.js
+export function jobMetadata(job) {
+  const s3Key = job.data.s3Key;
+  const userId = job.data.userId;
+  const audioId = job.data.audioId;
+  const videoId = job.data.videoId || null;
+  
+  return {
+    s3Key,
+    userId,
+    audioId,
+    videoId,
+  };
+}
+```
+
+**Usage in pipeline:**
+
+```javascript
+export async function audioPreprocessing(job) {
+  const { s3Key, userId, audioId } = jobMetadata(job);
+  
+  // Use extracted data
+  const localpath = await s3.DownloadFromS3(s3Key);
+  // ...
+}
+```
+
+## Monitoring and Observability
+
+### Custom Logging
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => {
+    logger.info(`Starting job ${job.id}`, {
+      audioId: job.data.audioId,
+      s3Key: job.data.s3Key,
+      attempt: job.attemptsMade + 1,
+    });
+    
+    const startTime = Date.now();
+    const result = await audioPreprocessing(job);
+    const duration = Date.now() - startTime;
+    
+    logger.info(`Completed job ${job.id} in ${duration}ms`, {
+      mp3Url: result.mp3Url,
+      waveformUrl: result.waveformUrl,
+    });
+    
+    return result;
+  },
+  { connection: redis }
+);
+```
+
+### Queue Events
+
+```javascript
+// Queue-level events
+audioQueue.on('waiting', (job) => {
+  console.log(`Job ${job.id} is waiting`);
+});
+
+audioQueue.on('active', (job) => {
+  console.log(`Job ${job.id} is now active`);
+});
+
+audioQueue.on('completed', (job, result) => {
+  console.log(`Job ${job.id} completed`);
+});
+
+audioQueue.on('failed', (job, error) => {
+  console.log(`Job ${job.id} failed: ${error.message}`);
+});
+
+audioQueue.on('progress', (job, progress) => {
+  console.log(`Job ${job.id}: ${progress}%`);
+});
+```
+
+## Performance Optimization
+
+<CardGroup cols={2}>
+  <Card title="Multiple Workers" icon="gears">
+    Run multiple worker processes for parallel processing
+    ```bash
+    pm2 start config/worker.js -i 4
+    ```
+  </Card>
+  
+  <Card title="Worker Concurrency" icon="arrows-split-up-and-left">
+    Process multiple jobs per worker
+    ```javascript
+    { concurrency: 5 }
+    ```
+  </Card>
+  
+  <Card title="Job Priority" icon="arrow-up">
+    Prioritize urgent jobs
+    ```javascript
+    { priority: 1 }
+    ```
+  </Card>
+  
+  <Card title="Cleanup Old Jobs" icon="broom">
+    Prevent Redis memory bloat
+    ```javascript
+    removeOnComplete: 100
+    ```
+  </Card>
+</CardGroup>
+
+<Tip>
+  For high-volume processing, run multiple worker instances:
+  ```bash
+  # 4 worker processes
+  pm2 start config/worker.js -i 4 --name px47-worker
+  ```
+</Tip>
+
+## Redis Configuration
+
+### Connection String Format
+
+```bash
+# Local Redis
+REDIS_URL=redis://localhost:6379
+
+# Redis with password
+REDIS_URL=redis://:password@localhost:6379
+
+# Redis Cloud
+REDIS_URL=redis://default:password@redis-12345.cloud.redislabs.com:12345
+
+# Redis with database number
+REDIS_URL=redis://localhost:6379/0
+```
+
+### Redis Memory Optimization
+
+```javascript
+const redis = new Redis(REDIS_URL, {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: true,
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: false,
+  lazyConnect: true,
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Processing Pipelines" icon="pipe" href="/concepts/pipelines">
+    Detailed audio and video processing
+  </Card>
+  <Card title="Worker Architecture" icon="gears" href="/architecture/workers">
+    Deep dive into BullMQ workers
+  </Card>
+  <Card title="S3 Integration" icon="aws" href="/concepts/s3-integration">
+    Pre-signed URLs and S3 operations
+  </Card>
+  <Card title="Environment Config" icon="key" href="/deployment/environment">
+    Configure Redis and queue settings
+  </Card>
+</CardGroup>

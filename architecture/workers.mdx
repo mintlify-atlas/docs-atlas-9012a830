@@ -1,0 +1,678 @@
+---
+title: Worker Architecture
+description: 'BullMQ worker architecture, parallel processing, and queue management in PX47'
+---
+
+## BullMQ Worker System
+
+PX47 uses **BullMQ** with Redis as the backing store to implement a robust, scalable job queue system. Workers run as separate Node.js processes from the API server.
+
+<Info>
+  Workers can be scaled horizontally by running multiple instances. BullMQ automatically distributes jobs across available workers.
+</Info>
+
+## Worker Structure
+
+### Worker Service
+
+The `WorkService` class manages both audio and video workers:
+
+```javascript backend/jobs/index.js
+import { AudioWorker } from './audioWorker.js';
+import { VideoWorker } from './videoWorker.js';
+
+class WorkService {
+  constructor() {
+    this.audio = new AudioWorker();
+    this.video = new VideoWorker();
+  }
+  
+  // Start all workers
+  startAll() {
+    this.audio.runAudioWorker();
+    this.video.RunVideoWorker();
+  }
+
+  // Get queue instances for adding jobs
+  getQueues() {
+    return {
+      audioQueue: this.audio.audioQueue,
+      videoQueue: this.video.videoQueue,
+    };
+  }
+}
+
+export { WorkService };
+```
+
+### Worker Entry Point
+
+```javascript backend/config/worker.js
+import { WorkService } from '../jobs/index.js';
+
+// Start all workers
+new WorkService().startAll();
+```
+
+Run with:
+```bash
+npm run worker
+# or
+node config/worker.js
+```
+
+## Audio Worker Implementation
+
+```javascript backend/jobs/audioWorker.js
+import redis from '../config/redis.js';
+import { Queue, Worker } from 'bullmq';
+import { logger } from '../config/logger.js';
+import { audioPreprocessing } from '../pipeline/audioPipeline.js';
+
+class AudioWorker {
+  constructor() {
+    this.redis = redis;
+    this.queueName = 'audio-processing';
+
+    // Create queue for adding jobs
+    this.audioQueue = new Queue(this.queueName, {
+      connection: this.redis,
+    });
+  }
+
+  runAudioWorker() {
+    // Create worker for consuming jobs
+    const processAudio = new Worker(
+      this.queueName,
+      async (job) => await audioPreprocessing(job),
+      { connection: this.redis },
+    );
+
+    processAudio.on('completed', (job) => {
+      logger.info(`Audio processing completed | ${job.id}`);
+    });
+
+    processAudio.on('failed', (job, err) => {
+      logger.error(`Audio processing failed | ${job.id} | ${err.message}`);
+    });
+  }
+}
+
+export { AudioWorker };
+```
+
+<Note>
+  The `Queue` is used by the API server to **add jobs**, while the `Worker` is used to **consume and process jobs**.
+</Note>
+
+## Video Worker Implementation
+
+```javascript backend/jobs/videoWorker.js
+import redis from '../config/redis.js';
+import { Worker, Queue } from 'bullmq';
+import { logger } from '../config/logger.js';
+import { videoPreprocessing } from '../pipeline/videoPipeline.js';
+
+class VideoWorker {
+  constructor() {
+    this.connection = redis;
+    this.queueName = 'video-processing';
+    
+    this.videoQueue = new Queue(this.queueName, {
+      connection: this.connection,
+    });
+  }
+
+  RunVideoWorker() {
+    const videoWorker = new Worker(
+      this.queueName,
+      async (job) => await videoPreprocessing(job),
+      { connection: this.connection },
+    );
+
+    videoWorker.on('completed', (job) => {
+      logger.info(`Video Processing Completed | ${job.id}`);
+    });
+
+    videoWorker.on('failed', (job, error) => {
+      logger.info(`Video Processing Failed | ${job.id} | ${error}`);
+    });
+  }
+}
+
+export { VideoWorker };
+```
+
+## Redis Connection
+
+```javascript backend/config/redis.js
+import Redis from 'ioredis';
+import { REDIS_URL, NODE_ENV } from '../config/conf.js';
+
+let redis;
+
+if (!redis) {
+  redis = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: true,
+  });
+}
+
+if (NODE_ENV !== 'production') {
+  global.redis = global.redis || redis;
+}
+
+export default redis;
+```
+
+<Warning>
+  `maxRetriesPerRequest: null` is required for BullMQ to work correctly with ioredis.
+</Warning>
+
+## Job Lifecycle
+
+<Steps>
+  <Step title="Job Creation">
+    API server adds job to queue:
+    
+    ```javascript
+    const { audioQueue } = new WorkService().getQueues();
+    
+    await audioQueue.add('audio-processing', {
+      audioId: 'clx123...',
+      s3Key: 'user-uuid-file.mp3',
+      userId: 'user123',
+    });
+    ```
+  </Step>
+
+  <Step title="Job Queued">
+    BullMQ stores job in Redis with unique ID and metadata
+  </Step>
+
+  <Step title="Worker Pickup">
+    Available worker claims job from queue (FIFO by default)
+  </Step>
+
+  <Step title="Processing">
+    Worker executes the pipeline function:
+    - Audio: `audioPreprocessing(job)`
+    - Video: `videoPreprocessing(job)`
+  </Step>
+
+  <Step title="Completion">
+    On success, `completed` event fires:
+    ```javascript
+    processAudio.on('completed', (job) => {
+      logger.info(`Audio processing completed | ${job.id}`);
+    });
+    ```
+  </Step>
+
+  <Step title="Failure">
+    On error, `failed` event fires:
+    ```javascript
+    processAudio.on('failed', (job, err) => {
+      logger.error(`Audio processing failed | ${job.id} | ${err.message}`);
+    });
+    ```
+  </Step>
+</Steps>
+
+## Worker Events
+
+BullMQ workers emit various events you can listen to:
+
+<Tabs>
+  <Tab title="Lifecycle Events">
+    ```javascript
+    worker.on('active', (job) => {
+      console.log(`Job ${job.id} is now active`);
+    });
+
+    worker.on('completed', (job, result) => {
+      console.log(`Job ${job.id} completed with result:`, result);
+    });
+
+    worker.on('failed', (job, error) => {
+      console.log(`Job ${job.id} failed:`, error);
+    });
+
+    worker.on('progress', (job, progress) => {
+      console.log(`Job ${job.id} is ${progress}% complete`);
+    });
+    ```
+  </Tab>
+
+  <Tab title="Worker Events">
+    ```javascript
+    worker.on('ready', () => {
+      console.log('Worker is ready to process jobs');
+    });
+
+    worker.on('closing', () => {
+      console.log('Worker is shutting down');
+    });
+
+    worker.on('closed', () => {
+      console.log('Worker has closed');
+    });
+
+    worker.on('error', (error) => {
+      console.error('Worker error:', error);
+    });
+    ```
+  </Tab>
+
+  <Tab title="Stalled Events">
+    ```javascript
+    worker.on('stalled', (jobId) => {
+      console.log(`Job ${jobId} has stalled`);
+    });
+
+    // A job is stalled when it hasn't progressed in lockDuration time
+    const worker = new Worker(queueName, processFn, {
+      connection: redis,
+      lockDuration: 30000, // 30 seconds
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Parallel Processing
+
+### Multiple Workers
+
+Run multiple worker processes to handle concurrent jobs:
+
+<Tabs>
+  <Tab title="Manual">
+    Open multiple terminals and run:
+    
+    **Terminal 1:**
+    ```bash
+    npm run worker
+    ```
+    
+    **Terminal 2:**
+    ```bash
+    npm run worker
+    ```
+    
+    **Terminal 3:**
+    ```bash
+    npm run worker
+    ```
+  </Tab>
+
+  <Tab title="PM2">
+    Use PM2 to manage multiple worker instances:
+    
+    ```bash
+    pm2 start config/worker.js -i 3 --name "px47-worker"
+    ```
+    
+    This starts 3 worker processes automatically.
+  </Tab>
+
+  <Tab title="Docker Compose">
+    Scale workers with Docker Compose:
+    
+    ```yaml docker-compose.yaml
+    services:
+      worker:
+        build:
+          context: ./backend
+          dockerfile: worker/Dockerfile
+        deploy:
+          replicas: 3
+        depends_on:
+          - redis
+    ```
+    
+    Or scale dynamically:
+    ```bash
+    docker-compose up -d --scale worker=5
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  BullMQ automatically distributes jobs across all available workers using Redis locks. No additional configuration needed.
+</Info>
+
+## Concurrency Control
+
+### Worker-level Concurrency
+
+Control how many jobs a single worker can process simultaneously:
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => await audioPreprocessing(job),
+  {
+    connection: redis,
+    concurrency: 5, // Process up to 5 jobs concurrently per worker
+  }
+);
+```
+
+<Warning>
+  FFmpeg is CPU-intensive. Set concurrency based on your CPU cores. A good rule of thumb is `concurrency = CPU_CORES / 2`.
+</Warning>
+
+### Rate Limiting
+
+Limit job processing rate to avoid overwhelming resources:
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => await audioPreprocessing(job),
+  {
+    connection: redis,
+    limiter: {
+      max: 10,      // Maximum 10 jobs
+      duration: 1000, // Per 1000ms (1 second)
+    },
+  }
+);
+```
+
+## Job Options
+
+### Retry Configuration
+
+```javascript
+await audioQueue.add('audio-processing', data, {
+  attempts: 3,              // Retry up to 3 times
+  backoff: {
+    type: 'exponential',    // Exponential backoff
+    delay: 2000,            // Start with 2 second delay
+  },
+});
+```
+
+**Backoff strategies:**
+- `exponential`: 2s, 4s, 8s, 16s...
+- `fixed`: 2s, 2s, 2s, 2s...
+
+### Job Priority
+
+```javascript
+// High priority job (lower number = higher priority)
+await audioQueue.add('audio-processing', data, {
+  priority: 1,
+});
+
+// Normal priority
+await audioQueue.add('audio-processing', data, {
+  priority: 5,
+});
+
+// Low priority
+await audioQueue.add('audio-processing', data, {
+  priority: 10,
+});
+```
+
+### Job Timeout
+
+```javascript
+await audioQueue.add('audio-processing', data, {
+  timeout: 300000, // 5 minutes (300,000ms)
+});
+```
+
+<Note>
+  If a job exceeds the timeout, it will fail and trigger the retry logic.
+</Note>
+
+### Delayed Jobs
+
+```javascript
+// Process after 1 hour
+await audioQueue.add('audio-processing', data, {
+  delay: 3600000, // 1 hour in milliseconds
+});
+```
+
+## Queue Management
+
+### Pausing/Resuming
+
+```javascript
+// Pause queue (no new jobs processed)
+await audioQueue.pause();
+
+// Resume queue
+await audioQueue.resume();
+
+// Check if paused
+const isPaused = await audioQueue.isPaused();
+```
+
+### Draining Queue
+
+```javascript
+// Remove all waiting jobs
+await audioQueue.drain();
+
+// Remove all jobs (including active)
+await audioQueue.obliterate();
+```
+
+### Queue Metrics
+
+```javascript
+// Get job counts
+const counts = await audioQueue.getJobCounts();
+console.log(counts);
+// {
+//   waiting: 5,
+//   active: 2,
+//   completed: 100,
+//   failed: 3,
+//   delayed: 0,
+// }
+
+// Get specific jobs
+const waitingJobs = await audioQueue.getWaiting();
+const activeJobs = await audioQueue.getActive();
+const failedJobs = await audioQueue.getFailed();
+const completedJobs = await audioQueue.getCompleted();
+```
+
+## Error Handling
+
+### Graceful Shutdown
+
+```javascript
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing worker gracefully...');
+  await worker.close();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, closing worker gracefully...');
+  await worker.close();
+  process.exit(0);
+});
+```
+
+### Failed Job Cleanup
+
+```javascript
+// Move failed jobs back to waiting
+const failedJobs = await audioQueue.getFailed();
+for (const job of failedJobs) {
+  await job.retry();
+}
+
+// Remove old failed jobs
+const failedJobs = await audioQueue.getFailed();
+for (const job of failedJobs) {
+  await job.remove();
+}
+```
+
+## Monitoring and Observability
+
+### Custom Logging
+
+```javascript
+const worker = new Worker(
+  'audio-processing',
+  async (job) => {
+    logger.info(`Processing job ${job.id}`, {
+      audioId: job.data.audioId,
+      userId: job.data.userId,
+      s3Key: job.data.s3Key,
+    });
+    
+    const result = await audioPreprocessing(job);
+    
+    logger.info(`Job ${job.id} completed`, {
+      mp3Url: result.mp3Url,
+      waveformUrl: result.waveformUrl,
+    });
+    
+    return result;
+  },
+  { connection: redis }
+);
+```
+
+### Progress Reporting
+
+```javascript
+export async function audioPreprocessing(job) {
+  await job.updateProgress(0);
+  
+  const localpath = await s3.DownloadFromS3(s3Key);
+  await job.updateProgress(20);
+  
+  const mp3File = await audio.ConvertToMp3();
+  await job.updateProgress(40);
+  
+  const metadata = await audio.ExtractMetadata();
+  await job.updateProgress(60);
+  
+  const waveFormJson = await audio.ExtractWaveform();
+  await job.updateProgress(80);
+  
+  await s3.UploadtoS3(mp3File, 'audio/mpeg', userId);
+  await job.updateProgress(100);
+}
+```
+
+## BullMQ Dashboard (Optional)
+
+BullMQ provides a web UI for monitoring queues:
+
+```bash
+npm install -g bull-board
+```
+
+```javascript dashboard.js
+import { createBullBoard } from '@bull-board/api';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { ExpressAdapter } from '@bull-board/express';
+import express from 'express';
+import { WorkService } from './jobs/index.js';
+
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+
+const { audioQueue, videoQueue } = new WorkService().getQueues();
+
+createBullBoard({
+  queues: [
+    new BullMQAdapter(audioQueue),
+    new BullMQAdapter(videoQueue),
+  ],
+  serverAdapter,
+});
+
+const app = express();
+app.use('/admin/queues', serverAdapter.getRouter());
+app.listen(3001, () => {
+  console.log('BullMQ Dashboard: http://localhost:3001/admin/queues');
+});
+```
+
+<Tip>
+  The dashboard provides real-time visualization of job queues, allowing you to monitor and manage jobs through a web interface.
+</Tip>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Separate Worker Processes" icon="split">
+    Always run workers in separate processes from the API server. This prevents CPU-intensive processing from blocking API requests.
+    
+    ```bash
+    # Terminal 1
+    npm run dev
+    
+    # Terminal 2
+    npm run worker
+    ```
+  </Accordion>
+
+  <Accordion title="Horizontal Scaling" icon="arrows-left-right">
+    Scale workers horizontally by running multiple instances. BullMQ handles job distribution automatically.
+    
+    ```bash
+    pm2 start config/worker.js -i 4
+    ```
+  </Accordion>
+
+  <Accordion title="Resource Management" icon="gauge-high">
+    Monitor CPU and memory usage. FFmpeg operations are CPU-intensive. Adjust concurrency based on available resources.
+  </Accordion>
+
+  <Accordion title="Error Recovery" icon="rotate-right">
+    Implement proper error handling and retry logic. Log failures for debugging.
+    
+    ```javascript
+    processAudio.on('failed', async (job, err) => {
+      logger.error(`Job ${job.id} failed`, {
+        error: err.message,
+        stack: err.stack,
+        data: job.data,
+      });
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Graceful Shutdown" icon="power-off">
+    Handle SIGTERM and SIGINT signals to close workers gracefully:
+    
+    ```javascript
+    process.on('SIGTERM', async () => {
+      await worker.close();
+      process.exit(0);
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Processing Pipelines" icon="pipe" href="/concepts/pipelines">
+    Detailed pipeline implementation
+  </Card>
+  <Card title="Job Processing" icon="list-check" href="/concepts/job-processing">
+    Job lifecycle and queue management
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/docker">
+    Deploy workers with Docker
+  </Card>
+  <Card title="Environment Config" icon="key" href="/deployment/environment">
+    Configure Redis and worker settings
+  </Card>
+</CardGroup>

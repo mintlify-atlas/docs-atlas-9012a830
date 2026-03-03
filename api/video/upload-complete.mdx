@@ -1,0 +1,112 @@
+---
+title: 'Video Upload Complete'
+description: 'Confirm video file upload to S3 and trigger processing'
+---
+
+## POST /api/v1/videoUploaded/:videoId
+
+Notifies the system that a video file has been successfully uploaded to S3. This triggers the video processing pipeline which extracts metadata, generates thumbnails, and converts the video to standard formats.
+
+### Authentication
+
+<ParamField header="Cookie" type="string" required>
+  Must include `access_token` cookie with valid JWT token.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="videoId" type="string" required>
+  MongoDB ObjectId of the video metadata entry (returned from presigned URL generation)
+</ParamField>
+
+### Request Body
+
+<ParamField body="key" type="string" required>
+  S3 object key where the file was uploaded (returned from presigned URL generation).
+  Will be automatically trimmed.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the upload confirmation was successful
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Updated video metadata
+  
+  <ResponseField name="status" type="string">
+    Always "processing" after successful confirmation
+  </ResponseField>
+  
+  <ResponseField name="id" type="string">
+    MongoDB ObjectId of the video entry
+  </ResponseField>
+  
+  <ResponseField name="fileName" type="string">
+    Name of the uploaded file
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status code on success
+</ResponseField>
+
+<ResponseField name="error" type="null">
+  Always null on success
+</ResponseField>
+
+### Status Codes
+
+- **202 Accepted** - Upload confirmed, processing started
+- **400 Bad Request** - Invalid videoId or key
+- **403 Forbidden** - Authentication required or user not authorized
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/v1/videoUploaded/507f1f77bcf86cd799439012 \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "key": "507f191e810c19729de860ea-a1b2c3d4-my-video.mp4"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "processing",
+    "id": "507f1f77bcf86cd799439012",
+    "fileName": "my-video.mp4"
+  },
+  "message": "202",
+  "error": null
+}
+```
+
+### Processing Pipeline
+
+After calling this endpoint, the following background processing occurs:
+
+1. **Status Update**: Video status changed from "uploading" to "processing"
+2. **Job Queued**: Background job added to Bull queue for processing
+3. **File Download**: Video file downloaded from S3 to worker
+4. **Metadata Extraction**: Video properties extracted using FFprobe
+5. **Audio Extraction**: Audio stream extracted to separate file (if present)
+6. **Format Conversion**: Video converted to MP4 with H.264 codec
+7. **Thumbnail Generation**: Video thumbnails generated
+8. **Upload Processed Files**: Converted video and assets uploaded back to S3
+9. **Database Update**: Metadata updated with processing results
+10. **Status Update**: Status changed to "ready" or "failed"
+
+<Note>
+  Only the user who created the video entry can confirm its upload. Video processing is resource-intensive and may take several minutes depending on file size and duration.
+</Note>
+
+<Warning>
+  Call this endpoint only after successfully uploading the file to S3 using the presigned URL. The processing pipeline will fail if the file is not accessible at the specified S3 key.
+</Warning>
