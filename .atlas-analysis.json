@@ -1,0 +1,111 @@
+{
+  "projectType": "api-service",
+  "projectName": "PX47",
+  "projectDescription": "Video and audio processing backend system with S3 uploads and parallel execution using BullMQ workers.",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/workflow",
+              "architecture/workers"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/s3-integration",
+              "concepts/job-processing",
+              "concepts/pipelines"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment",
+              "deployment/prerequisites"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/register",
+              "api/auth/login",
+              "api/auth/profile"
+            ]
+          },
+          {
+            "group": "Audio",
+            "pages": [
+              "api/audio/create",
+              "api/audio/update",
+              "api/audio/presigned-url",
+              "api/audio/upload-complete",
+              "api/audio/get-content"
+            ]
+          },
+          {
+            "group": "Video",
+            "pages": [
+              "api/video/create",
+              "api/video/update",
+              "api/video/upload-complete"
+            ]
+          },
+          {
+            "group": "Content Access",
+            "pages": [
+              "api/content/get-access"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Direct S3 uploads via pre-signed URLs",
+    "Asynchronous processing with BullMQ + Redis workers",
+    "Audio format conversion (MP3/AAC) using FFmpeg",
+    "Metadata extraction from audio/video files",
+    "Waveform generation stored as JSON",
+    "Parallel video processing (mute video + audio extraction)",
+    "User authentication with JWT",
+    "MongoDB database with Prisma ORM"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/auth/register",
+    "POST /api/v1/auth/login",
+    "GET /api/v1/auth/profile",
+    "POST /api/v1/audio",
+    "PUT /api/v1/audio/:audioId",
+    "POST /api/v1/video",
+    "PUT /api/v1/video/:videoId",
+    "POST /api/v1/generate-presigned-url/:fileName",
+    "POST /api/v1/fileUploaded/:audioId",
+    "POST /api/v1/videoUploaded/:videoId",
+    "GET /api/v1/contents",
+    "POST /api/v1/get-content-access/:key"
+  ]
+}
